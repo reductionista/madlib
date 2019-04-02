@@ -173,3 +173,5 @@ SELECT madlib_keras_predict(
     'x',
     $$ optimizer=SGD(lr=0.01, decay=1e-6, nesterov=True), loss='categorical_crossentropy', metrics=['accuracy']$$::text,
     'cifar10_predict');
+
+SELECT assert(prediction in (0,1),'Predicted value not in set of defined class values for model') FROM cifar10_predict;
