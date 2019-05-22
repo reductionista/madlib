@@ -1,0 +1,8 @@
+select dummy();
+
+drop table if exists small_unbatched;
+create table small_unbatched AS select ARRAY[1] AS x;
+
+drop table if exists small_batched;
+create table small_batched as select array_scalar_mult(x,1) as x from small_unbatched;
+select dummy() FROM small_unbatched;

@@ -79,7 +79,7 @@ def predict(schema_madlib, model_table, test_table, id_col,
         class_values, intermediate_col, pred_col_name,
         pred_col_type, is_response, MODULE_NAME)
 
-    gp_segment_id_col, seg_ids_test, \
+    seg_ids_test, \
     images_per_seg_test = get_images_per_seg_for_non_minibatched_data(test_table)
     segments_per_host = get_segments_per_host()
 
@@ -145,7 +145,7 @@ def get_images_per_seg_for_non_minibatched_data(table_name):
         gp_segment_id_col = '{0}.gp_segment_id'.format(table_name)
 
     images_per_seg = [int(image["images_per_seg"]) for image in images_per_seg]
-    return gp_segment_id_col, seg_ids, images_per_seg
+    return seg_ids, images_per_seg
 
 def internal_keras_predict(independent_var, model_architecture, model_data,
                            is_response, normalizing_const, current_seg_id, seg_ids,
