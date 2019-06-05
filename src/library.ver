@@ -8,9 +8,9 @@ VERS_1.0 {
         _ZnamRKSt9nothrow_t;
         _ZdaPv;
         _ZdaPvRKSt9nothrow_t;
-        _ZNKSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE4findERKSs;
-        _ZNSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE14_M_create_nodeERKSs;
-        _ZNSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE16_M_insert_uniqueERKSs;
+#        _ZNKSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE4findERKSs;
+#        _ZNSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE14_M_create_nodeERKSs;
+#        _ZNSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE16_M_insert_uniqueERKSs;
         _ZNSt8_Rb_treeISsSsSt9_IdentityISsESt4lessISsESaISsEE8_M_eraseEPSt13_Rb_tree_nodeISsE;
 
 #        extern "C++" {
