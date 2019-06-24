@@ -410,7 +410,6 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     if not independent_var or not dependent_var:
         return state
 
-    start_transition = time.time()
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                    current_seg_id)
@@ -421,17 +420,33 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
         compile_and_set_weights(segment_model, compile_params, device_name,
                                 prev_serialized_weights)
 
+        SD['start_transition'] = time.time()
         SD['segment_model'] = segment_model
-        agg_image_count = 0
+        x_train = []
+        y_train = []
     else:
         segment_model = SD['segment_model']
-        agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
+        x_train = SD['x_train']
+        y_train = SD['y_train']
 
-    # Prepare the data
-    x_train = np_array_float32(independent_var)
-    y_train = np_array_int16(dependent_var)
+    x_train.extend(np_array_float32(independent_var))
+    y_train.extend(np_array_int16(dependent_var))
+    SD['x_train'] = x_train
+    SD['y_train'] = y_train
 
-    # Fit segment model on data
+    image_count = len(x_train)
+    total_images = get_image_count_per_seg_from_array(current_seg_id, seg_ids,
+                                                      images_per_seg)
+
+    if image_count < total_images:
+        # Just accumulate, until we've loaded all images
+        return state
+
+    assert(image_count == total_images,\
+        "Image count went past total on segment!")
+
+    # Now, fit segment model on all images on this segment
+
     start_fit = time.time()
     with K.tf.device(device_name):
         #TODO consider not doing this every time
@@ -439,34 +454,29 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
         history = segment_model.fit(x_train, y_train, **fit_params)
     end_fit = time.time()
 
-    image_count = len(x_train)
-    # Aggregating number of images, loss and accuracy
-    agg_image_count += image_count
-
     with K.tf.device(device_name):
         updated_weights = segment_model.get_weights()
 
-    total_images = get_image_count_per_seg_from_array(current_seg_id, seg_ids,
-                                                      images_per_seg)
-
-    # Re-serialize the weights
+   # Re-serialize the weights
     # Update image count, check if we are done
-    if agg_image_count == total_images:
-        # Once done with all images on a segment, we update weights
-        # with the total number of images here instead of the merge function.
-        # The merge function only deals with aggregating them.
-        updated_weights = [ total_images * w for w in updated_weights ]
+    # Once done with all images on a segment, we update weights
+    # with the total number of images here instead of the merge function.
+    # The merge function only deals with aggregating them.
+    updated_weights = [ total_images * w for w in updated_weights ]
             # In GPDB, each segment would have a keras session, so clear
             # them after the last buffer is processed.
         clear_keras_session()
 
     new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-        agg_image_count, updated_weights)
+        image_count, updated_weights)
 
     del x_train
     del y_train
 
+    start_transition = SD['start_transition']
     end_transition = time.time()
+    print('Total time spent in transition over full iteration = {0}s'\
+        .format(end_transition - start_transition))
 
     return new_state
 
