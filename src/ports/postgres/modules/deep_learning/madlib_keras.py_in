@@ -407,8 +407,8 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
                    compile_params, fit_params, current_seg_id, seg_ids,
                    images_per_seg, gpus_per_host, segments_per_host,
                    prev_serialized_weights, **kwargs):
-    if not independent_var or not dependent_var:
-        return state
+#    if not independent_var or not dependent_var:
+#        return state
 
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
@@ -439,8 +439,10 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
                                                       images_per_seg)
 
     if image_count < total_images:
+        plpy.info("Returning with empty state, since image_count ({0}) < total_images ({1})".format(image_count, total_images))
         # Just accumulate, until we've loaded all images
-        return state
+        return prev_serialized_weights
+    plpy.info("Actually running keras now, since image_count ({0}) >= total_images ({1})".format(image_count, total_images))
 
     assert(image_count == total_images,\
         "Image count went past total on segment!")
@@ -451,22 +453,23 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     with K.tf.device(device_name):
         #TODO consider not doing this every time
         fit_params = parse_and_validate_fit_params(fit_params)
-        history = segment_model.fit(x_train, y_train, **fit_params)
+        segment_model.fit(x_train, y_train, **fit_params)
     end_fit = time.time()
 
     with K.tf.device(device_name):
         updated_weights = segment_model.get_weights()
 
-   # Re-serialize the weights
+    # Re-serialize the weights
     # Update image count, check if we are done
     # Once done with all images on a segment, we update weights
     # with the total number of images here instead of the merge function.
     # The merge function only deals with aggregating them.
     updated_weights = [ total_images * w for w in updated_weights ]
-            # In GPDB, each segment would have a keras session, so clear
-            # them after the last buffer is processed.
-        clear_keras_session()
 
+    clear_keras_session()
+
+    plpy.info("image_count = {0}".format(image_count))
+    
     new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
         image_count, updated_weights)
 
@@ -475,7 +478,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
 
     start_transition = SD['start_transition']
     end_transition = time.time()
-    print('Total time spent in transition over full iteration = {0}s'\
+    plpy.info('Total time spent in transition over full iteration = {0}s'\
         .format(end_transition - start_transition))
 
     return new_state
