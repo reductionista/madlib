@@ -404,33 +404,31 @@ def should_compute_metrics_this_iter(curr_iter, metrics_compute_frequency,
            curr_iter == num_iterations
 
 def fit_transition(state, dependent_var, independent_var, model_architecture,
-                   compile_params, fit_params, current_seg_id, seg_ids,
-                   images_per_seg, gpus_per_host, segments_per_host,
-                   prev_serialized_weights, **kwargs):
-#    if not independent_var or not dependent_var:
-#        return state
+             compile_params, fit_params, current_seg_id, seg_ids,
+             images_per_seg, gpus_per_host, segments_per_host,
+             serialized_weights, **kwargs):
 
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                    current_seg_id)
     # Set up system if this is the first buffer on segment'
-    if not state:
+    if not 'segment_model' in SD:
         set_keras_session(device_name, gpus_per_host, segments_per_host)
         segment_model = model_from_json(model_architecture)
         compile_and_set_weights(segment_model, compile_params, device_name,
-                                prev_serialized_weights)
+                                serialized_weights)
 
         SD['start_transition'] = time.time()
         SD['segment_model'] = segment_model
-        x_train = []
-        y_train = []
+        x_train = np_array_float32(independent_var)
+        y_train = np_array_int16(dependent_var)
     else:
         segment_model = SD['segment_model']
         x_train = SD['x_train']
         y_train = SD['y_train']
+        x_train = np.concatenate((x_train, np_array_float32(independent_var)), axis=0)
+        y_train = np.concatenate((y_train, np_array_int16(dependent_var)), axis=0)
 
-    x_train.extend(np_array_float32(independent_var))
-    y_train.extend(np_array_int16(dependent_var))
     SD['x_train'] = x_train
     SD['y_train'] = y_train
 
@@ -441,8 +439,14 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     if image_count < total_images:
         plpy.info("Returning with empty state, since image_count ({0}) < total_images ({1})".format(image_count, total_images))
         # Just accumulate, until we've loaded all images
-        return prev_serialized_weights
+        return []
     plpy.info("Actually running keras now, since image_count ({0}) >= total_images ({1})".format(image_count, total_images))
+
+    start_transition = SD['start_transition']  # save before deleting
+    del SD['start_transition']
+    del SD['segment_model']
+    del SD['x_train']
+    del SD['y_train']
 
     assert(image_count == total_images,\
         "Image count went past total on segment!")
@@ -458,6 +462,8 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
 
     with K.tf.device(device_name):
         updated_weights = segment_model.get_weights()
+
+    plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
 
     # Re-serialize the weights
     # Update image count, check if we are done
@@ -476,12 +482,13 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     del x_train
     del y_train
 
-    start_transition = SD['start_transition']
     end_transition = time.time()
+
     plpy.info('Total time spent in transition over full iteration = {0}s'\
         .format(end_transition - start_transition))
 
-    return new_state
+    return [new_state]  # Must be list, so it can be concatenated with lists
+                        #  from other segments by internal greenplum UDF arch
 
 def fit_merge(state1, state2, **kwargs):
 
