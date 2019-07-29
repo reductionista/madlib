@@ -1493,43 +1493,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit(
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
-    state                      BYTEA,
-    dependent_var              SMALLINT[],
-    independent_var            REAL[],
-    model_architecture         TEXT,
-    compile_params             TEXT,
-    fit_params                 TEXT,
-    current_seg_id             INTEGER,
-    seg_ids                    INTEGER[],
-    images_per_seg             INTEGER[],
-    gpus_per_host              INTEGER,
-    segments_per_host          INTEGER,
-    prev_serialized_weights    BYTEA
-) RETURNS BYTEA AS $$
-PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
-    return madlib_keras.fit_transition(**globals())
-$$ LANGUAGE plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
-
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_merge(
-    state1          BYTEA,
-    state2          BYTEA
-) RETURNS BYTEA AS $$
-PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
-    return madlib_keras.fit_merge(**globals())
-$$ LANGUAGE plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
-
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_final(
-    state BYTEA
-) RETURNS BYTEA AS $$
-PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
-    return madlib_keras.fit_final(**globals())
-$$ LANGUAGE plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
-
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
+DROP FUNCTION IF EXISTS MADLIB_SCHEMA.fit_step(
     SMALLINT[],
     REAL[],
     TEXT,
@@ -1541,24 +1505,25 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     INTEGER,
     INTEGER,
     BYTEA);
-CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
-    /* dep_var */                SMALLINT[],
-    /* ind_var */                REAL[],
-    /* model_architecture */     TEXT,
-    /* compile_params */         TEXT,
-    /* fit_params */             TEXT,
-    /* current_seg_id */         INTEGER,
-    /* seg_ids*/                 INTEGER[],
-    /* images_per_seg*/          INTEGER[],
-    /* gpus_per_host  */         INTEGER,
-    /* segments_per_host  */     INTEGER,
-    /* serialized_weights */     BYTEA
-)(
-    STYPE=BYTEA,
-    SFUNC=MADLIB_SCHEMA.fit_transition,
-    m4_ifdef(`__POSTGRESQL__', `', `prefunc=MADLIB_SCHEMA.fit_merge,')
-    FINALFUNC=MADLIB_SCHEMA.fit_final
-);
+CREATE FUNCTION MADLIB_SCHEMA.fit_step(
+    dependent_var                 SMALLINT[],
+    independent_var                 REAL[],
+    model_architecture      TEXT,
+    compile_params          TEXT,
+    fit_params              TEXT,
+    current_seg_id          INTEGER,
+    seg_ids                 INTEGER[],
+    images_per_seg          INTEGER[],
+    gpus_per_host           INTEGER,
+    segments_per_host       INTEGER,
+    serialized_weights      BYTEA
+)
+RETURNS SETOF BYTEA AS
+$$
+PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
+    return madlib_keras.fit_step(**globals())
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
     model_table             VARCHAR,
@@ -1707,7 +1672,6 @@ CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
     FINALFUNC=MADLIB_SCHEMA.internal_keras_eval_final
 );
 
-
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit(
      message VARCHAR
 ) RETURNS VARCHAR AS $$
@@ -1737,7 +1701,6 @@ RETURNS VARCHAR AS $$
     SELECT MADLIB_SCHEMA.madlib_keras_evaluate('');
 $$ LANGUAGE sql IMMUTABLE
 m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
-
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_predict(
      message VARCHAR
