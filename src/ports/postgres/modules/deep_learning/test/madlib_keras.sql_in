@@ -19,6 +19,19 @@
  *
  *//* ---------------------------------------------------------------------*/
 
+SELECT regexp_replace('MODULE_PATHNAME',
+                      'libmadlib.so$',
+                      '../../modules/deep_learning/test/create_input.sql'
+
+\! pwd
+\! env
+
+
+\i regexp_replace('MODULE_PATHNAME',
+                  'libmadlib.so$',
+                  '../../modules/deep_learning/test/madlib_keras_tables.sql'
+);
+
 -- -- Please do not break up the compile_params string
 -- -- It might break the assertion
 DROP TABLE IF EXISTS keras_saved_out, keras_saved_out_summary;
