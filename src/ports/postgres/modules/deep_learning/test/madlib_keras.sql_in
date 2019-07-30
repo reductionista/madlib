@@ -19,18 +19,14 @@
  *
  *//* ---------------------------------------------------------------------*/
 
-SELECT regexp_replace('MODULE_PATHNAME',
-                      'libmadlib.so$',
-                      '../../modules/deep_learning/test/create_input.sql'
+--\i m4_regexp(MODULE_PATHNAME,
+--             `\(.*\)libmadlib\.so',
+--             `\1../../modules/deep_learning/test/madlib_keras.setup.sql_in'
+--)
 
-\! pwd
-\! env
+m4_include(`SQLCommon.m4')
 
-
-\i regexp_replace('MODULE_PATHNAME',
-                  'libmadlib.so$',
-                  '../../modules/deep_learning/test/madlib_keras_tables.sql'
-);
+\i PATH_TO_SQL_TESTS(`madlib_keras.setup.sql_in')
 
 -- -- Please do not break up the compile_params string
 -- -- It might break the assertion

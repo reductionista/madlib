@@ -21,6 +21,8 @@
 
 -------------------- CIFAR 10 test input tables -----------------
 
+SELECT blah
+
 drop table if exists cifar_10_sample;
 create table cifar_10_sample(id INTEGER, y SMALLINT, y_text TEXT, imgpath TEXT, x  REAL[]);
 copy cifar_10_sample from stdin delimiter '|';
