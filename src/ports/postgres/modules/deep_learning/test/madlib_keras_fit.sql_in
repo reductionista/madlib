@@ -390,6 +390,17 @@ SELECT assert(
     'Keras model output Summary Validation failed. Actual:' || __to_char(summary))
 FROM (SELECT * FROM keras_saved_out_summary) summary;
 
+-- Test with INTEGER class_values
+-- with NULL as a valid class value
+INSERT INTO cifar_10_sample(id, x, y, imgpath)
+SELECT 3, x, NULL, '0/img3.jpg' FROM cifar_10_sample
+WHERE y = 1;
+INSERT INTO cifar_10_sample(id, x, y, imgpath)
+SELECT 4, x, 4, '0/img4.jpg' FROM cifar_10_sample
+WHERE y = 0;
+INSERT INTO cifar_10_sample(id, x, y, imgpath)
+SELECT 5, x, 5, '0/img5.jpg' FROM cifar_10_sample
+WHERE y = 1;
 
 DROP TABLE IF EXISTS cifar_10_sample_int_batched;
 DROP TABLE IF EXISTS cifar_10_sample_int_batched_summary;

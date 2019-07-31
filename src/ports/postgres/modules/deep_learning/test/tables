@@ -1,0 +1,114 @@
+Predict table access & modification sequence:
+(C = create, R = read, W = write)
+===========================
+29 (keras_fit)
+R cifar_10_sample_batched
+R model_arch
+C keras_saved_out  
+
+102 (ALTER TABLE)
+W keras_saved_out 
+
+108 (keras_fit)
+W keras_saved_out
+
+160 (keras_predict)
+R keras_saved_out
+R cifar_10_sample
+C cifar10_predict_gpu
+
+229 (keras_fit)
+R cifar_10_sample_batched
+R model_arch
+W keras_saved_out
+
+261 (keras_fit)
+R cifar_10_sample_batched
+R model_arch
+W keras_saved_out
+
+292 (keras_predict)
+R keras_saved_out    
+R cifar_10_sample
+C cifar10_predict
+
+320 (keras_predict)
+R keras_saved_out
+R cifar_10_sample_batched
+
+422 (keras_predict)
+R keras_saved_out
+R cifar_10_sample
+
+480
+W model_arch
+
+502 (keras_fit)
+R cifar_10_sample_text_batched)
+R model_arch
+W keras_saved_out
+
+523 (keras_predict)
+R keras_saved_out
+R cifar_10_sample_text
+W cifar10_predict
+
+557 (keras_predict)
+R keras_saved_out
+R cifar_10_sample_text
+W cifar10_predict
+
+577 UPDATE
+W keras_saved_out_summary
+
+581 (keras_predict)
+R keras_saved_out
+R keras_saved_out_summary
+R cifar_10_sample_text
+
+601 (keras_predict)
+R keras_saved_out
+R cifar_10_sample_text
+
+621-627 INSERT
+W cifar_10_sample
+
+636 (keras_fit)
+R cifar_10_sample_int_batched
+R model_arch
+W keras_saved_out
+
+654 (keras_predict)
+R keras_saved_out
+R cifar_10_sample
+
+678 (keras_predict)
+R keras_saved_out
+R cifar_10_sample
+
+699
+C cifar_10_sample_test_shape
+
+706 (training_preprocessor_dl)
+R cifar_10_sample_test_shape
+C cifar_10_sample_test_shape_batched
+C cifar_10_sample_test_shape_batched_summary
+
+731 (keras_fit)
+R model_arch
+R cifar_10_sample_test_shape_batched
+W keras_saved_out
+
+743 (keras_predict)
+R cifar_10_sample_test_shape
+R keras_saved_out
+
+754 (keras_predict)
+R cifar_10_sample
+R keras_saved_out
+
+767 (keras_predict)
+R keras_saved_out
+R cifar_10_sample_test_shape
+
+
