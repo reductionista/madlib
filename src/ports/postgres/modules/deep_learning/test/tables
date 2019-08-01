@@ -94,6 +94,9 @@ R cifar_10_sample_test_shape
 C cifar_10_sample_test_shape_batched
 C cifar_10_sample_test_shape_batched_summary
 
+710 (load_keras_model)
+W model_arch
+
 731 (keras_fit)
 R model_arch
 R cifar_10_sample_test_shape_batched
