@@ -1493,18 +1493,31 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit(
 $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_generate_mst_table(
+    model_selection_table   VARCHAR,
+    model_arch_id_list      INTEGER[],
+    compile_params_list     VARCHAR[],
+    fit_params_list         VARCHAR[]
+) RETURNS VOID AS $$
+    PythonFunctionBodyOnly(`deep_learning', `madlib_keras_fit_multiple_model')
+    with AOControl(False):
+        mst_generator = madlib_keras_fit_multiple_model.GenerateMstTable(**globals())
+        mst_generator.generate()
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
     source_table            VARCHAR,
     model_output_table      VARCHAR,
     model_arch_table        VARCHAR,
-    model_selection_table   VARCHAR, 
+    model_selection_table   VARCHAR,
     num_iterations          INTEGER,
     gpus_per_host           INTEGER
 ) RETURNS VOID AS $$
     PythonFunctionBodyOnly(`deep_learning', `madlib_keras_fit_multiple_model')
     with AOControl(False):
         fit_obj = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
-        fit_obj.fit_multiple_model()       
+        fit_obj.fit_multiple_model()
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
@@ -1612,7 +1625,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.fit_step_multiple_model(
     /* segments_per_host  */     INTEGER,
     /* serialized_weights */     BYTEA,
     /* is_final */               BOOLEAN
-)(  
+)(
     STYPE=BYTEA,
     SFUNC=MADLIB_SCHEMA.fit_transition_multiple_model
 );

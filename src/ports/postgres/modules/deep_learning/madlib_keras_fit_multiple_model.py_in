@@ -21,8 +21,9 @@ import plpy
 import time
 import sys
 # Do not remove `import keras` although it's not directly used in this file.
-# For ex if the user passes in the optimizer as keras.optimizers.SGD instead of just
-# SGD, then without this import this python file won't find the SGD module
+# For ex if the user passes in the optimizer as keras.optimizers.SGD
+# instead of just SGD, then without this import this python file won't find the
+# SGD module
 import keras
 
 # from keras import backend as K
@@ -50,6 +51,7 @@ from utilities.utilities import is_platform_pg
 
 import json
 from collections import defaultdict
+from collections import OrderedDict
 import random
 import datetime
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
@@ -61,7 +63,9 @@ class ModelSelectionSchema:
     MODEL_ARCH_ID = 'model_arch_id'
     COMPILE_PARAMS = 'compile_params'
     FIT_PARAMS = 'fit_params'
-    col_types = ('SERIAL', 'INTEGER', 'VARCHAR', 'VARCHAR')
+    DIST_KEY = 'dist_key'
+    MODEL_ID = 'model_id'
+
 
 @MinWarning("warning")
 class FitMultipleModel():
@@ -70,7 +74,8 @@ class FitMultipleModel():
                  gpus_per_host=0, **kwargs):
 
         if is_platform_pg():
-            plpy.error("DL: Multiple model training is not supported on Postgresql.")
+            plpy.error(
+                "DL: Multiple model training is not supported on Postgresql.")
         self.source_table = source_table
         self.model_arch_table = model_arch_table
         self.model_selection_table = model_selection_table
@@ -94,6 +99,8 @@ class FitMultipleModel():
         self.model_arch_id_col = ModelSelectionSchema.MODEL_ARCH_ID
         self.compile_params_col = ModelSelectionSchema.COMPILE_PARAMS
         self.fit_params_col = ModelSelectionSchema.FIT_PARAMS
+        self.dist_key_col = ModelSelectionSchema.DIST_KEY
+        self.model_id_col = ModelSelectionSchema.MODEL_ID
         self.dist_keys = self.query_dist_keys()
         self.grand_schedule = self.generate_schedule()
 
@@ -128,7 +135,6 @@ class FitMultipleModel():
         self.weights_map = {}
         for e in range(self.num_iterations):
             plpy.info("Iteration: {}".format(e))
-            is_final = (e == self.num_iterations - 1)
             for i in range(len(self.msts)):
                 mst_row = [self.grand_schedule[dist_key][i]
                            for dist_key in self.dist_keys]
@@ -208,13 +214,16 @@ class FitMultipleModel():
         return res
 
     def create_mst_schedule_table(self, mst_row):
-        mst_temp_query = """DROP TABLE IF EXISTS mst_current_schedule;
-                            CREATE TABLE mst_current_schedule(model_arch_id INTEGER,
-                                                               compile_params VARCHAR,
-                                                               fit_params VARCHAR,
-                                                               dist_key INTEGER,
-                                                               mst_key INTEGER primary key)
-                         """
+        mst_temp_query = """
+            DROP TABLE IF EXISTS mst_current_schedule;
+            CREATE TABLE mst_current_schedule(
+                {self.model_arch_id_col} INTEGER,
+                {self.compile_params_col} VARCHAR,
+                {self.fit_params_col} VARCHAR,
+                {self.dist_key_col} INTEGER,
+                {self.mst_key_col} INTEGER primary key
+            )
+        """.format(self=self)
         plpy.execute(mst_temp_query)
         for mst, dist_key in zip(mst_row, self.dist_keys):
             mst_insert_query = """
@@ -224,18 +233,21 @@ class FitMultipleModel():
                                             $madlib${}$madlib$,
                                             {},
                                             {})
-                                """.format(mst[self.model_arch_id_col], mst[self.compile_params_col],
-                                           mst[self.fit_params_col], dist_key, mst[self.mst_key_col])
+                                """.format(mst[self.model_arch_id_col],
+                                           mst[self.compile_params_col],
+                                           mst[self.fit_params_col],
+                                           dist_key,
+                                           mst[self.mst_key_col])
             plpy.execute(mst_insert_query)
 
     def create_model_output_table(self):
-        output_table_create_query = """CREATE TABLE {}
-                                (mst_key INTEGER PRIMARY KEY,
+        output_table_create_query = """CREATE TABLE {self.model_output_table}
+                                ({self.mst_key_col} INTEGER PRIMARY KEY,
                                  weights BYTEA,
                                  model_arch JSON
                                 )
-                               """.format(self.model_output_table)
-        info_table_create_query = """CREATE TABLE {}
+                               """.format(self=self)
+        info_table_create_query = """CREATE TABLE {self.model_info_table}
                                 (mst_key INTEGER PRIMARY KEY,
                                  model_arch_id INTEGER,
                                  compile_params TEXT,
@@ -252,7 +264,7 @@ class FitMultipleModel():
                                  validation_loss_final DOUBLE PRECISION,
                                  validation_metrics DOUBLE PRECISION[],
                                  validation_loss DOUBLE PRECISION[])
-                               """.format(self.model_info_table)
+                               """.format(self=self)
 
         plpy.execute(output_table_create_query)
         plpy.execute(info_table_create_query)
@@ -319,24 +331,24 @@ class FitMultipleModel():
         normalizing_const_colname = NORMALIZING_CONST_COLNAME
         float32_sql_type = FLOAT32_SQL_TYPE
         update_query = """
-                CREATE TABLE {self.model_summary_table} AS
-                SELECT
-                    $MAD${self.source_table}$MAD$::TEXT AS source_table,
-                    NULL::TEXT AS validation_table,
-                    $MAD${self.model_output_table}$MAD$::TEXT AS model,
-                    $MAD${self.model_info_table}$MAD$::TEXT AS model_info,
-                    $MAD${dependent_varname}$MAD$::TEXT AS dependent_varname,
-                    $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
-                    $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
-                    {self.num_iterations}::INTEGER AS num_iterations,
-                    '{self.start_training_time}'::TIMESTAMP AS start_training_time,
-                    '{self.end_training_time}'::TIMESTAMP AS end_training_time,
-                    '{self.version}'::TEXT AS madlib_version,
-                    {num_classes}::INTEGER AS num_classes,
-                    ARRAY{class_values}::TEXT[] AS {class_values_colname},
-                    $MAD${dep_vartype}$MAD$::TEXT AS {dependent_vartype_colname},
-                    {norm_const}::{float32_sql_type} AS {normalizing_const_colname}
-            """.format(**locals())
+            CREATE TABLE {self.model_summary_table} AS
+            SELECT
+                $MAD${self.source_table}$MAD$::TEXT AS source_table,
+                NULL::TEXT AS validation_table,
+                $MAD${self.model_output_table}$MAD$::TEXT AS model,
+                $MAD${self.model_info_table}$MAD$::TEXT AS model_info,
+                $MAD${dependent_varname}$MAD$::TEXT AS dependent_varname,
+                $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
+                $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
+                {self.num_iterations}::INTEGER AS num_iterations,
+                '{self.start_training_time}'::TIMESTAMP AS start_training_time,
+                '{self.end_training_time}'::TIMESTAMP AS end_training_time,
+                '{self.version}'::TEXT AS madlib_version,
+                {num_classes}::INTEGER AS num_classes,
+                ARRAY{class_values}::TEXT[] AS {class_values_colname},
+                $MAD${dep_vartype}$MAD$::TEXT AS {dependent_vartype_colname},
+                {norm_const}::{float32_sql_type} AS {normalizing_const_colname}
+        """.format(**locals())
         plpy.execute(update_query)
 
     def insert_info_table(self):
@@ -375,37 +387,47 @@ class FitMultipleModel():
     def run_training(self, is_final):
         mst_wgh = "mst_wgh"
         # TODO: fix distributed by
-        mst_wgh_query = """DROP TABLE IF EXISTS mst_wgh;
-                           CREATE TEMP TABLE mst_wgh AS
-                           SELECT mst.*, wgh.weights, model_arch.model_arch
-                           FROM mst_current_schedule mst JOIN {} wgh ON mst.mst_key = wgh.mst_key
-                                JOIN {} model_arch ON mst.model_arch_id = model_arch.model_id
-                           DISTRIBUTED BY (dist_key)
-                           """.format(self.model_output_table, self.model_arch_table)
+        mst_wgh_query = """
+            DROP TABLE IF EXISTS mst_wgh;
+           CREATE TEMP TABLE mst_wgh AS
+           SELECT mst.*, wgh.weights, model_arch.model_arch
+           FROM
+                mst_current_schedule mst JOIN {} wgh
+                    ON mst.mst_key = wgh.mst_key
+                JOIN {} model_arch
+                    ON mst.model_arch_id = model_arch.model_id
+           DISTRIBUTED BY (dist_key)
+       """.format(self.model_output_table, self.model_arch_table)
         plpy.execute(mst_wgh_query)
         # WARNING weights_one_schedule.weights is the state returned by
         # the step function, which is img_count and weights concatnated
         mlp_uda_query = """
-            UPDATE {self.model_output_table} SET weights = weights_one_schedule.weights
-            FROM (SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
-                                                      {mb_indep_var_col},
-                                                      mst_wgh.model_arch::TEXT,
-                                                      mst_wgh.compile_params::TEXT,
-                                                      mst_wgh.fit_params::TEXT,
-                                                      iris.gp_segment_id,
-                                                      ARRAY{self.seg_ids_train},
-                                                      ARRAY{self.images_per_seg_train},
-                                                      {self.gpus_per_host},
-                                                      {self.segments_per_host},
-                                                      mst_wgh.weights::BYTEA,
-                                                      {is_final}::BOOLEAN
-                                                      )::BYTEA AS weights,
-                mst_wgh.mst_key AS mst_key
-                FROM {self.source_table} iris JOIN mst_wgh
-                USING (dist_key)
+            UPDATE {self.model_output_table} SET weights =
+                weights_one_schedule.weights
+            FROM
+                (SELECT
+                    {self.schema_madlib}.fit_step_multiple_model(
+                        {mb_dep_var_col},
+                        {mb_indep_var_col},
+                        mst_wgh.model_arch::TEXT,
+                        mst_wgh.compile_params::TEXT,
+                        mst_wgh.fit_params::TEXT,
+                        iris.gp_segment_id,
+                        ARRAY{self.seg_ids_train},
+                        ARRAY{self.images_per_seg_train},
+                        {self.gpus_per_host},
+                        {self.segments_per_host},
+                        mst_wgh.weights::BYTEA,
+                        {is_final}::BOOLEAN
+                    )::BYTEA AS weights,
+                    mst_wgh.mst_key AS mst_key
+                FROM
+                    {self.source_table} iris JOIN mst_wgh
+                    USING (dist_key)
                 GROUP BY iris.dist_key, mst_wgh.mst_key
                 ) weights_one_schedule
-            WHERE {self.model_output_table}.mst_key = weights_one_schedule.mst_key
+            WHERE {self.model_output_table}.mst_key =
+                weights_one_schedule.mst_key
             """.format(mb_dep_var_col=mb_dep_var_col,
                         mb_indep_var_col=mb_indep_var_col,
                         is_final=is_final,
@@ -422,3 +444,67 @@ class FitMultipleModel():
 
         res = plpy.execute(mlp_weights_query)
         return res
+
+
+@MinWarning("warning")
+class GenerateMstTable():
+    def __init__(self,
+                 model_selection_table,
+                 model_arch_id_list,
+                 compile_params_list,
+                 fit_params_list):
+        self.model_selection_table = model_selection_table
+        self.msts = []
+        self.param_grid = OrderedDict([('model_arch_id', model_arch_id_list), (
+            'compile_params', compile_params_list),
+            ('fit_params', fit_params_list)]
+        )
+        self.find_combinations()
+
+    def generate(self):
+        self.create_mst_table()
+        self.insert_into_mst_table()
+
+    def find_combinations(self):
+        def find_combinations_helper(msts, p, i):
+            param_names = self.param_grid.keys()
+            if i < len(param_names):
+                for x in self.param_grid[param_names[i]]:
+                    p[param_names[i]] = x
+                    find_combinations_helper(msts, p, i + 1)
+            else:
+                msts.append(p.copy())
+        find_combinations_helper(self.msts, {}, 0)
+
+    def create_mst_table(self):
+        create_query = """
+                        DROP TABLE IF EXISTS {self.model_selection_table};
+                        CREATE TABLE {self.model_selection_table} (
+                            mst_key SERIAL,
+                            model_arch_id INTEGER,
+                            compile_params VARCHAR,
+                            fit_params VARCHAR,
+                            unique (model_arch_id, compile_params, fit_params)
+                        );
+                       """.format(self=self)
+        plpy.execute(create_query)
+
+    def insert_into_mst_table(self):
+        for mst in self.msts:
+            model_arch_id = mst['model_arch_id']
+            compile_params = mst['compile_params']
+            fit_params = mst['fit_params']
+            insert_query = """
+                            INSERT INTO
+                                {self.model_selection_table}(
+                                    model_arch_id,
+                                    compile_params,
+                                    fit_params
+                                )
+                            VALUES (
+                                {model_arch_id},
+                                $${compile_params}$$,
+                                $${fit_params}$$
+                            )
+                           """.format(self=self, **locals())
+            plpy.execute(insert_query)
