@@ -21,7 +21,7 @@
 
 \i m4_regexp(MODULE_PATHNAME,
              `\(.*\)libmadlib\.so',
-             `\1../../modules/deep_learning/test/madlib_keras.setup.sql_in'
+             `\1../../modules/deep_learning/test/madlib_keras_cifar.setup.sql_in'
 )
 
 -- -- Please do not break up the compile_params string
