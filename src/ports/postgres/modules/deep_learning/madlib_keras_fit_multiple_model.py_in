@@ -452,7 +452,8 @@ class GenerateMstTable():
                  model_selection_table,
                  model_arch_id_list,
                  compile_params_list,
-                 fit_params_list):
+                 fit_params_list,
+                 **kwargs):
         self.model_selection_table = model_selection_table
         self.msts = []
         self.param_grid = OrderedDict([('model_arch_id', model_arch_id_list), (
@@ -506,5 +507,5 @@ class GenerateMstTable():
                                 $${compile_params}$$,
                                 $${fit_params}$$
                             )
-                           """.format(self=self, **locals())
+                           """.format(**locals())
             plpy.execute(insert_query)
