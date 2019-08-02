@@ -311,3 +311,52 @@ class FitInputValidator:
             _validate_input_shapes(
                 self.validation_table, self.independent_varname,
                 input_shape, 2)
+
+
+class GenerateMstInputValidator():
+    def __init__(self,
+                 model_selection_table,
+                 model_arch_table,
+                 model_arch_id_list,
+                 compile_params_list,
+                 fit_params_list
+                 ):
+        self.model_arch_table = model_arch_table
+        self.model_selection_table = model_selection_table
+        self.model_arch_id_list = model_arch_id_list
+        self.compile_params_list = compile_params_list
+        self.fit_params_list = fit_params_list
+        self.module_name = 'madlib_keras_generate_mst_table'
+        self._validate_input_args()
+
+    def _validate_input_args(self):
+        self._valid_input_output_tables()
+        self._valid_model_arch_ids()
+
+    def _valid_model_arch_ids(self):
+        model_arch_id_str = \
+            '(' + \
+            ','.join([str(x) for x in self.model_arch_id_list]) + \
+            ')'
+        query = """
+            SELECT count(model_id)
+            FROM {self.model_arch_table}
+            WHERE model_id IN {model_arch_id_str}
+        """.format(**locals())
+        res = int(plpy.execute(query)[0]['count'])
+        _assert(
+            res == len(self.model_arch_id_list),
+            "{0}: One or more model_id of {1} not found in table {2}".format(
+                self.module_name,
+                model_arch_id_str,
+                self.model_arch_table
+            )
+        )
+    def _valid_input_output_tables(self):
+        input_tbl_valid(self.model_arch_table, self.module_name)
+        output_tbl_valid(self.model_selection_table, self.module_name)
+
+
+
+
+

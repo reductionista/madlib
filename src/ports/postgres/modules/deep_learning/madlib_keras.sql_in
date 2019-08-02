@@ -1495,6 +1495,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_generate_mst_table(
     model_selection_table   VARCHAR,
+    model_arch_table        VARCHAR,
     model_arch_id_list      INTEGER[],
     compile_params_list     VARCHAR[],
     fit_params_list         VARCHAR[]
