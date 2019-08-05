@@ -1495,7 +1495,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     state                      BYTEA,
-    dependent_var              SMALLINT[],
+    dependent_var              INTEGER[],
     independent_var            REAL[],
     model_architecture         TEXT,
     compile_params             TEXT,
@@ -1505,7 +1505,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     images_per_seg             INTEGER[],
     gpus_per_host              INTEGER,
     segments_per_host          INTEGER,
-    prev_serialized_weights    BYTEA
+    serialized_weights         BYTEA
 ) RETURNS BYTEA AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
     return madlib_keras.fit_transition(**globals())
@@ -1530,7 +1530,7 @@ $$ LANGUAGE plpythonu
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
-    SMALLINT[],
+    INTEGER[],
     REAL[],
     TEXT,
     TEXT,
@@ -1542,7 +1542,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     INTEGER,
     BYTEA);
 CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
-    /* dep_var */                SMALLINT[],
+    /* dep_var */                INTEGER[],
     /* ind_var */                REAL[],
     /* model_architecture */     TEXT,
     /* compile_params */         TEXT,
@@ -1643,7 +1643,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     state                              REAL[3],
-    dependent_var                      SMALLINT[],
+    dependent_var                      INTEGER[],
     independent_var                    REAL[],
     model_architecture                 TEXT,
     serialized_weights                 BYTEA,
@@ -1677,7 +1677,7 @@ $$ LANGUAGE plpythonu
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
-                                       SMALLINT[],
+                                       INTEGER[],
                                        REAL[],
                                        TEXT,
                                        BYTEA,
@@ -1689,7 +1689,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
                                        INTEGER);
 
 CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
-    /* dependent_var */                SMALLINT[],
+    /* dependent_var */                INTEGER[],
     /* independent_var */              REAL[],
     /* model_architecture */           TEXT,
     /* model_data */                   BYTEA,
