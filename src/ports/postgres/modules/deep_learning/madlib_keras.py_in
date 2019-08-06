@@ -52,6 +52,30 @@ from utilities.validate_args import get_expr_type
 from utilities.validate_args import quote_ident
 from utilities.control import MinWarning
 
+def average_results(results, num_segments):
+    weights_total = None
+    total_images = 0
+
+    for result in results:
+        iteration_result = result['iteration_result']
+        image_count, weights = madlib_keras_serializer.\
+            deserialize_as_image_1d_weights(iteration_result)
+
+        if weights_total is None:
+            weights_total = weights
+        else:
+            weights_total += weights    # previously done by merge func
+
+        total_images += image_count
+
+    if num_segments == 0:
+        plpy.error("average_results: total_images from all segments is 0!")
+
+    averaged_weights = weights_total / num_segments
+
+    return madlib_keras_serializer.\   # previously done by final func
+        serialize_state_with_1d_weights(image_count, averaged_weights)
+
 @MinWarning("warning")
 def fit(schema_madlib, source_table, model, model_arch_table,
         model_arch_id, compile_params, fit_params, num_iterations,
@@ -146,13 +170,19 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
-        iteration_result = plpy.execute(run_training_iteration,
-                                        [serialized_weights])[0]['iteration_result']
+        results = plpy.execute(run_training_iteration,
+                                        [serialized_weights])
+
+        # results = a list, where each element is the iteration result
+        #           of a single segment.
+        #  These need to be averaged together and weighted by the number
+        #   of images on each segment.
+        serialized_weights = average_results(results, images_per_seg_train)
+
         end_iteration = time.time()
+
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
-        serialized_weights = madlib_keras_serializer.\
-            get_serialized_1d_weights_from_state(iteration_result)
 
         if should_compute_metrics_this_iter(i, metrics_compute_frequency,
                                             num_iterations):
@@ -465,11 +495,6 @@ def fit_step(dependent_var, independent_var, model_architecture,
 
     plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
 
-    # Re-serialize the weights
-    # Update image count, check if we are done
-    # Once done with all images on a segment, we update weights
-    # with the total number of images here instead of the merge function.
-    # The merge function only deals with aggregating them.
     updated_weights = [ total_images * w for w in updated_weights ]
 
     clear_keras_session()
