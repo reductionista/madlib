@@ -1181,6 +1181,91 @@ SELECT assert(
   'Transfer learning test failed because training loss and metrics don''t match the expected value.')
 FROM iris_model_first_run AS first, iris_model_transfer_summary AS second;
 
+
+
+-------------------- MST TABLE GENERATION and MULTIPLE MODEL FIT -----------------
+-- MST talbe generation test
+
+-- Valid inputs should pass and yield 6 msts in the table
+DROP TABLE IF EXISTS mst_table;
+SELECT madlib.madlib_keras_generate_mst_table(
+    'mst_table',
+    'iris_model_arch',
+    ARRAY[1],
+    ARRAY[
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.001)',metrics=['accuracy']$$
+    ],
+    ARRAY[
+        $$batch_size=5,epochs=1$$,
+        $$batch_size=10,epochs=1$$
+    ]
+);
+SELECT assert(
+    COUNT(*)=6,
+    'The length of mst table does not match with the inputs'
+)
+FROM mst_table;
+
+-- Invalid arguments must be errored out
+
+DROP TABLE IF EXISTS mst_table;
+SELECT assert(trap_error($TRAP$
+    SELECT madlib.madlib_keras_generate_mst_table(
+        'mst_table',
+        'iris_model_arch',
+        ARRAY[-1],
+        ARRAY[
+            $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$
+        ],
+        ARRAY[
+            $$batch_size=5,epochs=1$$
+        ]
+    );
+$TRAP$)=1, 'Should error out if model_id is not in the model arch table');
+
+DROP TABLE IF EXISTS mst_table;
+SELECT assert(trap_error($TRAP$
+    SELECT madlib.madlib_keras_generate_mst_table(
+        'mst_table',
+        'iris_model_arch',
+        ARRAY[1],
+        ARRAY[
+            $$foo='bar'$$
+        ],
+        ARRAY[
+            $$batch_size='bar'$$
+        ]
+    );
+$TRAP$)=1, 'Should error out if the provided parameters are not valid');
+
+-- Must deduplicate, options with extrac white spaces should not be considered
+-- as distinct params.
+
+DROP TABLE IF EXISTS mst_table;
+SELECT madlib.madlib_keras_generate_mst_table(
+    'mst_table',
+    'iris_model_arch',
+    ARRAY[1],
+    ARRAY[
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$,
+        $$loss=' categorical_crossentropy', optimizer='Adam(lr=0.1)',metrics=['accuracy'] $$,
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.001)',metrics=['accuracy']$$
+    ],
+    ARRAY[
+        $$batch_size=5,epochs=1$$,
+        $$batch_size=10,epochs=1$$
+    ]
+);
+SELECT assert(
+    COUNT(*)=4,
+    'The length of mst table does not match with the inputs due to deduplication failure'
+)
+FROM mst_table;
+
+
+
 -- Multiple models test
 DROP TABLE if exists iris_data_packed_dist, iris_data_packed_dist_summary;
 CREATE TABLE iris_data_packed_dist AS
@@ -1207,11 +1292,8 @@ INSERT INTO mst_table(mst_key,
 	       'loss=''categorical_crossentropy'', optimizer=''Adam(lr=0.0001)'', metrics=[''accuracy'']',
 	       'batch_size=16, epochs=1');
 
-CREATE FUNCTION test_mult_models()
-RETURNS VOID AS $$
-begin
 DROP TABLE if exists iris_multiple_model, iris_multiple_model_summary, iris_multiple_model_info;
-PERFORM MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
+SELECT MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
 	'iris_data_packed_dist',
 	'iris_multiple_model',
 	'iris_model_arch',
@@ -1241,7 +1323,7 @@ SELECT assert(
         model_arch_id = 1 AND
         model_type = 'madlib_keras' AND
         model_size > 0 AND
-        fit_params = $MAD$batch_size=16, epochs=1$MAD$::text AND
+        fit_params = $$batch_size=16, epochs=1$$::text AND
         metrics_type = '{accuracy}' AND
         training_metrics_final >= 0  AND
         training_loss_final  >= 0  AND
@@ -1252,22 +1334,17 @@ SELECT assert(
 FROM (SELECT * FROM iris_multiple_model_info) info;
 
 SELECT assert(
-	compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)', metrics=['accuracy']$MAD$::text,
+	compile_params = $$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)', metrics=['accuracy']$$::text,
 	'Keras Fit Multiple Output Info compile params validation failed for model 1. Actual:' || __to_char(info))
 FROM (SELECT * FROM iris_multiple_model_info WHERE mst_key=1) info;
 
 SELECT assert(
-	compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=0.001)', metrics=['accuracy']$MAD$::text,
+	compile_params = $$loss='categorical_crossentropy', optimizer='Adam(lr=0.001)', metrics=['accuracy']$$::text,
 	'Keras Fit Multiple Output Info compile params validation failed for model 2. Actual:' || __to_char(info))
 FROM (SELECT * FROM iris_multiple_model_info WHERE mst_key=2) info;
 
 SELECT assert(
-	compile_params = $MAD$loss='categorical_crossentropy', optimizer='Adam(lr=0.0001)', metrics=['accuracy']$MAD$::text,
+	compile_params = $$loss='categorical_crossentropy', optimizer='Adam(lr=0.0001)', metrics=['accuracy']$$::text,
 	'Keras Fit Multiple Output Info compile params validation failed for model 3. Actual:' || __to_char(info))
 FROM (SELECT * FROM iris_multiple_model_info WHERE mst_key=3) info;
 
-end
-$$ LANGUAGE plpgsql VOLATILE;
-
-
-m4_ifdef(`__POSTGRESQL__', `', `SELECT test_mult_model()');

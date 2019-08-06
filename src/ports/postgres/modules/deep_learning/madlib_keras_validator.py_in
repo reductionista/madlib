@@ -44,6 +44,8 @@ from utilities.validate_args import columns_exist_in_table
 from utilities.validate_args import get_expr_type
 from utilities.validate_args import input_tbl_valid
 from utilities.validate_args import output_tbl_valid
+from madlib_keras_wrapper import parse_and_validate_fit_params
+from madlib_keras_wrapper import parse_and_validate_compile_params
 
 
 def _validate_input_shapes(table, independent_varname, input_shape, offset):
@@ -332,6 +334,7 @@ class GenerateMstInputValidator():
     def _validate_input_args(self):
         self._valid_input_output_tables()
         self._valid_model_arch_ids()
+        self._valid_compile_and_fit_params()
 
     def _valid_model_arch_ids(self):
         model_arch_id_str = \
@@ -352,6 +355,25 @@ class GenerateMstInputValidator():
                 self.model_arch_table
             )
         )
+    def _valid_compile_and_fit_params(self):
+        for fit_params in self.fit_params_list:
+            try:
+                res = parse_and_validate_fit_params(fit_params)
+            except Exception as e:
+                plpy.error(
+                    """Fit param check failed for: {} \n
+                    {}
+                    """.format(fit_params, str(e)))
+        for compile_params in self.compile_params_list:
+            try:
+                res = parse_and_validate_compile_params(compile_params)
+            except Exception as e:
+                plpy.error(
+                    """Compile param check failed for: {} \n
+                    {}
+                    """.format(compile_params, str(e)))
+
+
     def _valid_input_output_tables(self):
         input_tbl_valid(self.model_arch_table, self.module_name)
         output_tbl_valid(self.model_selection_table, self.module_name)

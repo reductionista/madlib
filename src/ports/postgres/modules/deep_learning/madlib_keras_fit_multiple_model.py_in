@@ -459,8 +459,10 @@ class GenerateMstTable():
         self.model_arch_table = model_arch_table
         self.model_selection_table = model_selection_table
         self.model_arch_id_list = sorted(list(set(model_arch_id_list)))
-        self.compile_params_list = sorted(list(set(compile_params_list)))
-        self.fit_params_list = sorted(list(set(fit_params_list)))
+        self.compile_params_list = self.params_preprocessed(
+            compile_params_list)
+        self.fit_params_list = self.params_preprocessed(fit_params_list)
+
         GenerateMstInputValidator(
             model_selection_table=self.model_selection_table,
             model_arch_table=self.model_arch_table,
@@ -478,8 +480,14 @@ class GenerateMstTable():
         self.find_combinations()
 
     def generate(self):
+        # All of the side effects happen in this function
         self.create_mst_table()
         self.insert_into_mst_table()
+
+    def params_preprocessed(self, list_strs):
+        res = [x.replace(' ', '') for x in list_strs]
+        res = sorted(list(set(res)))
+        return res
 
     def find_combinations(self):
         def find_combinations_helper(msts, p, i):
