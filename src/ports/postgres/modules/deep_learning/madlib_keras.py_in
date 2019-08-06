@@ -146,6 +146,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
+        plpy.info("Length of serialized_weights passed to execute: {0}".format(len(serialized_weights)))
         iteration_result = plpy.execute(run_training_iteration,
                                         [serialized_weights])[0]['iteration_result']
         end_iteration = time.time()
@@ -411,6 +412,9 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                    current_seg_id)
+    x_train = np_array_float32(independent_var)
+    y_train = np_array_int16(dependent_var)
+
     # Set up system if this is the first buffer on segment'
     if not 'segment_model' in SD:
         set_keras_session(device_name, gpus_per_host, segments_per_host)
@@ -420,25 +424,40 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
 
         SD['start_transition'] = time.time()
         SD['segment_model'] = segment_model
-        x_train = np_array_float32(independent_var)
-        y_train = np_array_int16(dependent_var)
+        buf = 0
     else:
         segment_model = SD['segment_model']
-        x_train = SD['x_train']
-        y_train = SD['y_train']
-        x_train = np.concatenate((x_train, np_array_float32(independent_var)), axis=0)
-        y_train = np.concatenate((y_train, np_array_int16(dependent_var)), axis=0)
+        buf = SD['buffer'] + 1
 
-    SD['x_train'] = x_train
-    SD['y_train'] = y_train
+    SD['x_train{0}'.format(buf)] = x_train
+    SD['y_train{0}'.format(buf)] = y_train
+    SD['buffer'] = buf
 
     image_count = len(x_train)
+    for b in range(buf + 1):
+        count = len(SD['x_train{0}'.format(b)])
+        image_count += count
+        plpy.info("Length of x_train{0} is {1}".format(b, count))
+
     total_images = get_image_count_per_seg_from_array(current_seg_id, seg_ids,
                                                       images_per_seg)
 
     if image_count < total_images:
         plpy.info("Returning with empty state, since image_count ({0}) < total_images ({1})".format(image_count, total_images))
         # Just accumulate, until we've loaded all images
+        gig = 1024*1024*1024/8
+        a = range(gig/3)
+        b = range(gig/3)
+#        if a not in SD:
+#            SD['a'] = np.array([])
+#            SD['b'] = np.array([])
+#        SD['a'] = np.array(list(SD['a']) + list(a))
+#        SD['b'] = np.array(list(SD['b']) + list(b))
+#        plpy.info("Returning from transition with len(a) = {0}, len(b) = {1}", len(a), len(b))
+        import sys
+#        plpy.info("getsizeof(a) = {0}, getsizeof(b) = {1}".format(sys.getsizeof(a), sys.getsizeof(b)))
+        plpy.info("getsizeof(SD) = {0}, getsizeof(x_train) = {1}".format(sys.getsizeof(SD), sys.getsizeof(x_train)))
+
         return []
     plpy.info("Actually running keras now, since image_count ({0}) >= total_images ({1})".format(image_count, total_images))
 
@@ -453,6 +472,11 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
 
     # Now, fit segment model on all images on this segment
 
+    for b in range(buf):
+        # TODO: convert to fit_generate, so we can skip this expensive step!
+        x_train = np.concatenate((x_train, SD['x_train{0}'.format(b)]), axis=0)
+        y_train = np.concatenate((y_train, SD['y_train{0}'.format(b)]), axis=0)
+
     start_fit = time.time()
     with K.tf.device(device_name):
         #TODO consider not doing this every time
@@ -463,7 +487,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     with K.tf.device(device_name):
         updated_weights = segment_model.get_weights()
 
-    plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
+#    plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
 
     # Re-serialize the weights
     # Update image count, check if we are done
