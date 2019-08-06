@@ -1,0 +1,31 @@
+When UDA runs by appending all data on the segment to one big array, eventually
+gets memory error like this:
+
+ERROR:  plpy.SPIError: invalid memory alloc request size 1754629437 (context 'ExprContext') (mcxt.c:1066) (mcxt.c:475)  (seg2 slice1 10.138.0.24:40002 pid=9864) (plpython.c:4960)
+DETAIL:
+while creating return value
+PL/Python function "fit_transition"
+CONTEXT:  Traceback (most recent call last):
+      PL/Python function "madlib_keras_fit", line 21, in <module>
+          madlib_keras.fit(**globals())
+        PL/Python function "madlib_keras_fit", line 42, in wrapper
+        PL/Python function "madlib_keras_fit", line 149, in fit
+      PL/Python function "madlib_keras_fit"
+
+
+1754629437 = 1.6 GB, just over 1 GB mem alloc limit in postgres.  Maybe can
+fix using a list of lists, instead of a single big list?  But there's a
+potential problem: how do we pass that to keras in a single shot?  (I think
+we can use a generator, right?)
+
+fit_generator() seems like it should work fine:
+https://keras.io/models/sequential/
+
+But looking at that, now I notice train_on_batch()--wouldn't this have been
+a better solution from the beginning, for what we're doing?  Not sure what
+the difference is between that and fit, aside from only being able to pass
+a single batch instead of multiple batches.
+
+Uh-oh:  maybe SD cannot hold more than 1GB?  Need to test, but that may be a
+big problem with this approach.  I suspect the actual limit is just that each
+object referenced in SD cannot be larger than 1GB.  So maybe we're fine.
