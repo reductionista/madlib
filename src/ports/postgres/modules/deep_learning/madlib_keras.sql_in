@@ -1494,7 +1494,7 @@ $$ LANGUAGE sql VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
 DROP FUNCTION IF EXISTS MADLIB_SCHEMA.fit_step(
-    SMALLINT[],
+    INTEGER[],
     REAL[],
     TEXT,
     TEXT,
@@ -1506,8 +1506,8 @@ DROP FUNCTION IF EXISTS MADLIB_SCHEMA.fit_step(
     INTEGER,
     BYTEA);
 CREATE FUNCTION MADLIB_SCHEMA.fit_step(
-    dependent_var                 SMALLINT[],
-    independent_var                 REAL[],
+    dependent_var           INTEGER[],
+    independent_var         REAL[],
     model_architecture      TEXT,
     compile_params          TEXT,
     fit_params              TEXT,
@@ -1608,7 +1608,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     state                              REAL[3],
-    dependent_var                      SMALLINT[],
+    dependent_var                      INTEGER[],
     independent_var                    REAL[],
     model_architecture                 TEXT,
     serialized_weights                 BYTEA,
@@ -1642,7 +1642,7 @@ $$ LANGUAGE plpythonu
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
-                                       SMALLINT[],
+                                       INTEGER[],
                                        REAL[],
                                        TEXT,
                                        BYTEA,
@@ -1654,7 +1654,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
                                        INTEGER);
 
 CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
-    /* dependent_var */                SMALLINT[],
+    /* dependent_var */                INTEGER[],
     /* independent_var */              REAL[],
     /* model_architecture */           TEXT,
     /* model_data */                   BYTEA,
