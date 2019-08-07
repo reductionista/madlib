@@ -73,7 +73,8 @@ def average_results(results, num_segments):
 
     averaged_weights = weights_total / num_segments
 
-    return madlib_keras_serializer.\   # previously done by final func
+                                     # previously done by final func
+    return madlib_keras_serializer.\
         serialize_state_with_1d_weights(image_count, averaged_weights)
 
 @MinWarning("warning")
