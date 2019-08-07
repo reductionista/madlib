@@ -1472,7 +1472,7 @@ class MadlibKerasGenerateMstTestCase(unittest.TestCase):
 
         self.module_patcher = patch.dict('sys.modules', patches)
         self.module_patcher.start()
-        import deep_learning.madlib_keras_fit_multiple_model
+        import deep_learning.madlib_keras_model_hopper_utilities
         self.module = deep_learning.madlib_keras_fit_multiple_model
         self.module.GenerateMstInputValidator._validate_input_args = \
             MagicMock()

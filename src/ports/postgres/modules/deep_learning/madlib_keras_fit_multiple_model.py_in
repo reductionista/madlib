@@ -51,7 +51,6 @@ from utilities.utilities import is_platform_pg
 
 import json
 from collections import defaultdict
-from collections import OrderedDict
 import random
 import datetime
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
@@ -445,92 +444,3 @@ class FitMultipleModel():
         res = plpy.execute(mlp_weights_query)
         return res
 
-
-@MinWarning("warning")
-class GenerateMstTable():
-    def __init__(self,
-                 model_selection_table,
-                 model_arch_table,
-                 model_arch_id_list,
-                 compile_params_list,
-                 fit_params_list,
-                 **kwargs):
-
-        self.model_arch_table = model_arch_table
-        self.model_selection_table = model_selection_table
-        self.model_arch_id_list = sorted(list(set(model_arch_id_list)))
-        self.compile_params_list = self.params_preprocessed(
-            compile_params_list)
-        self.fit_params_list = self.params_preprocessed(fit_params_list)
-
-        GenerateMstInputValidator(
-            model_selection_table=self.model_selection_table,
-            model_arch_table=self.model_arch_table,
-            model_arch_id_list=self.model_arch_id_list,
-            compile_params_list=self.compile_params_list,
-            fit_params_list=self.fit_params_list
-        )
-        self.msts = []
-        self.param_grid = OrderedDict([
-            ('model_arch_id', self.model_arch_id_list),
-            ('compile_params', self.compile_params_list),
-            ('fit_params', self.fit_params_list)
-        ])
-
-        self.find_combinations()
-
-    def generate(self):
-        # All of the side effects happen in this function
-        self.create_mst_table()
-        self.insert_into_mst_table()
-
-    def params_preprocessed(self, list_strs):
-        res = [x.replace(' ', '') for x in list_strs]
-        res = sorted(list(set(res)))
-        return res
-
-    def find_combinations(self):
-        def find_combinations_helper(msts, p, i):
-            param_names = self.param_grid.keys()
-            if i < len(param_names):
-                for x in self.param_grid[param_names[i]]:
-                    p[param_names[i]] = x
-                    find_combinations_helper(msts, p, i + 1)
-            else:
-                msts.append(p.copy())
-        find_combinations_helper(self.msts, {}, 0)
-
-    def create_mst_table(self):
-        create_query = """
-                        CREATE TABLE {self.model_selection_table} (
-                            mst_key SERIAL,
-                            model_arch_table VARCHAR,
-                            model_arch_id INTEGER,
-                            compile_params VARCHAR,
-                            fit_params VARCHAR,
-                            unique (model_arch_id, compile_params, fit_params)
-                        );
-                       """.format(self=self)
-        plpy.execute(create_query)
-
-    def insert_into_mst_table(self):
-        for mst in self.msts:
-            model_arch_id = mst['model_arch_id']
-            compile_params = mst['compile_params']
-            fit_params = mst['fit_params']
-            insert_query = """
-                            INSERT INTO
-                                {self.model_selection_table}(
-                                    model_arch_table,
-                                    model_arch_id,
-                                    compile_params,
-                                    fit_params
-                                )
-                            VALUES (
-                                $${self.model_arch_table}$$,
-                                {model_arch_id},
-                                $${compile_params}$$,
-                                $${fit_params}$$
-                            )
-                           """.format(**locals())
-            plpy.execute(insert_query)

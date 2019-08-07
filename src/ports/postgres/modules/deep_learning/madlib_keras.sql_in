@@ -1500,9 +1500,9 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_generate_mst_table(
     compile_params_list     VARCHAR[],
     fit_params_list         VARCHAR[]
 ) RETURNS VOID AS $$
-    PythonFunctionBodyOnly(`deep_learning', `madlib_keras_fit_multiple_model')
+    PythonFunctionBodyOnly(`deep_learning', `madlib_keras_model_hopper_utilities')
     with AOControl(False):
-        mst_generator = madlib_keras_fit_multiple_model.GenerateMstTable(**globals())
+        mst_generator = madlib_keras_model_hopper_utilities.GenerateMstTable(**globals())
         mst_generator.generate()
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
