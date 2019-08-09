@@ -230,7 +230,7 @@ class FitInputValidator:
             self.output_summary_model_table = add_postfix(
                 self.output_model_table, "_summary")
         self.module_name = 'madlib_keras_fit'
-        self._validate_input_args()
+        # self._validate_input_args()
 
     def _validate_input_args(self):
         _assert(self.num_iterations > 0,

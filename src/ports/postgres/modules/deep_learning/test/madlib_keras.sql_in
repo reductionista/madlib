@@ -558,7 +558,7 @@ INSERT INTO cifar_10_sample_text_batched_summary values (
 
 -- Change model_arch to reflect 5 num_classes
 DROP TABLE IF EXISTS model_arch;
-SELECT load_keras_model('model_arch',
+SELECT madlib.load_keras_model('model_arch',
   $${
   "class_name": "Sequential",
   "keras_version": "2.1.6",

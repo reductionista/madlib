@@ -85,7 +85,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     model_arch, model_weights = get_model_arch_weights(model_arch_table, model_arch_id)
     num_classes = get_num_classes(model_arch)
     input_shape = get_input_shape(model_arch)
-    fit_validator.validate_input_shapes(input_shape)
+    # fit_validator.validate_input_shapes(input_shape)
     gp_segment_id_col = '0' if is_platform_pg() else 'gp_segment_id'
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights,
@@ -135,45 +135,45 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
-        serialized_weights = madlib_keras_serializer.\
-            get_serialized_1d_weights_from_state(iteration_result)
+        # serialized_weights = madlib_keras_serializer.\
+        #     get_serialized_1d_weights_from_state(iteration_result)
 
-        if should_compute_metrics_this_iter(i, metrics_compute_frequency,
-                                            num_iterations):
-            # Compute loss/accuracy for training data.
-            compute_out = compute_loss_and_metrics(
-                schema_madlib, source_table, compile_params_to_pass, model_arch,
-                serialized_weights, gpus_per_host, segments_per_host, seg_ids_train,
-                images_per_seg_train, training_metrics, training_loss, i)
-            metrics_iters.append(i)
-            compute_time, compute_metrics, compute_loss = compute_out
-
-            info_str += "\n\tTime for evaluating training dataset in "\
-                        "iteration {0}: {1} sec\n".format(i, compute_time)
-            info_str += "\tTraining set metric after iteration {0}: {1}\n".format(
-                i, compute_metrics)
-            info_str += "\tTraining set loss after iteration {0}: {1}".format(
-                i, compute_loss)
-
-            if validation_set_provided:
-                # Compute loss/accuracy for validation data.
-                val_compute_out = compute_loss_and_metrics(
-                    schema_madlib, validation_table, compile_params_to_pass,
-                    model_arch, serialized_weights, gpus_per_host, segments_per_host,
-                    seg_ids_val, images_per_seg_val, validation_metrics,
-                    validation_loss, i)
-                val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
-
-                info_str += "\n\tTime for evaluating validation dataset in "\
-                        "iteration {0}: {1} sec\n".format(i, val_compute_time)
-                info_str += "\tValidation set metric after iteration {0}: {1}\n".format(
-                    i, val_compute_metrics)
-                info_str += "\tValidation set loss after iteration {0}: {1}".format(
-                    i, val_compute_loss)
-
-            metrics_elapsed_end_time = time.time()
-            metrics_elapsed_time.append(
-                metrics_elapsed_end_time-metrics_elapsed_start_time)
+        # if should_compute_metrics_this_iter(i, metrics_compute_frequency,
+        #                                     num_iterations):
+        #     # Compute loss/accuracy for training data.
+        #     compute_out = compute_loss_and_metrics(
+        #         schema_madlib, source_table, compile_params_to_pass, model_arch,
+        #         serialized_weights, gpus_per_host, segments_per_host, seg_ids_train,
+        #         images_per_seg_train, training_metrics, training_loss, i)
+        #     metrics_iters.append(i)
+        #     compute_time, compute_metrics, compute_loss = compute_out
+        #
+        #     info_str += "\n\tTime for evaluating training dataset in "\
+        #                 "iteration {0}: {1} sec\n".format(i, compute_time)
+        #     info_str += "\tTraining set metric after iteration {0}: {1}\n".format(
+        #         i, compute_metrics)
+        #     info_str += "\tTraining set loss after iteration {0}: {1}".format(
+        #         i, compute_loss)
+        #
+        #     if validation_set_provided:
+        #         # Compute loss/accuracy for validation data.
+        #         val_compute_out = compute_loss_and_metrics(
+        #             schema_madlib, validation_table, compile_params_to_pass,
+        #             model_arch, serialized_weights, gpus_per_host, segments_per_host,
+        #             seg_ids_val, images_per_seg_val, validation_metrics,
+        #             validation_loss, i)
+        #         val_compute_time, val_compute_metrics, val_compute_loss = val_compute_out
+        #
+        #         info_str += "\n\tTime for evaluating validation dataset in "\
+        #                 "iteration {0}: {1} sec\n".format(i, val_compute_time)
+        #         info_str += "\tValidation set metric after iteration {0}: {1}\n".format(
+        #             i, val_compute_metrics)
+        #         info_str += "\tValidation set loss after iteration {0}: {1}".format(
+        #             i, val_compute_loss)
+        #
+        #     metrics_elapsed_end_time = time.time()
+        #     metrics_elapsed_time.append(
+        #         metrics_elapsed_end_time-metrics_elapsed_start_time)
         plpy.info("\n"+info_str)
     end_training_time = datetime.datetime.now()
 
@@ -410,30 +410,42 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
         agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
 
     # Prepare the data
-    x_train = np_array_float32(independent_var)
-    y_train = np_array_int16(dependent_var)
+    # x_train = np_array_float32(independent_var)
+    # y_train = np_array_int16(dependent_var)
 
-    # Fit segment model on data
-    start_fit = time.time()
-    with K.tf.device(device_name):
-        #TODO consider not doing this every time
-        fit_params = parse_and_validate_fit_params(fit_params)
-        history = segment_model.fit(x_train, y_train, **fit_params)
-    end_fit = time.time()
+    if 'data_x' in SD:
+        SD['data_x'].append(independent_var)
+        SD['data_y'].append(dependent_var)
+    else:
+        SD['data_x'] = [independent_var]
+        SD['data_y'] = [dependent_var]
 
-    image_count = len(x_train)
+
+    # image_count = len(x_train)
     # Aggregating number of images, loss and accuracy
-    agg_image_count += image_count
-
-    with K.tf.device(device_name):
-        updated_weights = segment_model.get_weights()
+    # agg_image_count += image_count
+    agg_image_count += 1
 
     total_images = get_image_count_per_seg_from_array(current_seg_id, seg_ids,
                                                       images_per_seg)
-
     # Re-serialize the weights
     # Update image count, check if we are done
+    # plpy.info('agg image count is {} and total images is {}'.format(
+    #     agg_image_count, total_images))
     if agg_image_count == total_images:
+        plpy.info('len and size of x is {} {} bytes'.format(
+            len(SD['data_x']),
+            sys.getsizeof(SD['data_x']))
+        )
+        with K.tf.device(device_name):
+            #TODO consider not doing this every time
+            fit_params = parse_and_validate_fit_params(fit_params)
+            x_train = np_array_float32(SD['data_x'])
+            y_train = np_array_int16(SD['data_y'])
+            segment_model.fit(x_train, y_train, **fit_params)
+        with K.tf.device(device_name):
+            updated_weights = segment_model.get_weights()
+
         # Once done with all images on a segment, we update weights
         # with the total number of images here instead of the merge function.
         # The merge function only deals with aggregating them.
@@ -442,11 +454,16 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
             # them after the last buffer is processed.
         clear_keras_session()
 
-    new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-        agg_image_count, updated_weights)
+        new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+            agg_image_count, updated_weights)
 
-    del x_train
-    del y_train
+        del SD['data_x']
+        del SD['data_y']
+    else:
+        new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+            agg_image_count, [np.array([0,0])])
+    # del x_train
+    # del y_train
 
     end_transition = time.time()
 
@@ -515,8 +532,8 @@ def evaluate(schema_madlib, model_table, test_table, output_table, gpus_per_host
     model_arch = res['model_arch']
 
     input_shape = get_input_shape(model_arch)
-    InputValidator.validate_input_shape(
-        test_table, MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL, input_shape, 2)
+    # InputValidator.validate_input_shape(
+    #     test_table, MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL, input_shape, 2)
 
     compile_params_query = "SELECT compile_params, metrics_type FROM {0}".format(model_summary_table)
     res = plpy.execute(compile_params_query)[0]
