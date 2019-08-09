@@ -414,8 +414,11 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     # y_train = np_array_int16(dependent_var)
 
     if 'data_x' in SD:
+        s = time.time()
         SD['data_x'].append(independent_var)
         SD['data_y'].append(dependent_var)
+        e = time.time()
+        plpy.info('time taken to append data {}s'.format(e-s))
     else:
         SD['data_x'] = [independent_var]
         SD['data_y'] = [dependent_var]
@@ -433,15 +436,19 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     # plpy.info('agg image count is {} and total images is {}'.format(
     #     agg_image_count, total_images))
     if agg_image_count == total_images:
-        plpy.info('len and size of x is {} {} bytes'.format(
-            len(SD['data_x']),
-            sys.getsizeof(SD['data_x']))
-        )
+        # plpy.info('len and size of x is {} {} bytes'.format(
+        #     len(SD['data_x']),
+        #     sys.getsizeof(SD['data_x']))
+        # )
         with K.tf.device(device_name):
             #TODO consider not doing this every time
             fit_params = parse_and_validate_fit_params(fit_params)
+            s = time.time()
             x_train = np_array_float32(SD['data_x'])
+            # plpy.info('x_train shape is {}'.format(x_train.shape))
             y_train = np_array_int16(SD['data_y'])
+            e = time.time()
+            plpy.info('time taken to convert to np array {}s'.format(e-s))
             segment_model.fit(x_train, y_train, **fit_params)
         with K.tf.device(device_name):
             updated_weights = segment_model.get_weights()
