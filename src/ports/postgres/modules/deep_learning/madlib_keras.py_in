@@ -27,6 +27,7 @@ import time
 # For ex if the user passes in the optimizer as keras.optimizers.SGD instead of just
 # SGD, then without this import this python file won't find the SGD module
 import keras
+import copy
 
 from keras import backend as K
 from keras.layers import *
@@ -392,6 +393,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     if not independent_var or not dependent_var:
         return state
 
+    return None
     start_transition = time.time()
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
@@ -410,19 +412,32 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
         agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
 
     # Prepare the data
-    # x_train = np_array_float32(independent_var)
-    # y_train = np_array_int16(dependent_var)
-
+    #x_train = np_array_float32(independent_var)
+    x_train=independent_var
+    #plpy.info(x_train.shape)
+    #plpy.info(sys.getsizeof(x_train))
+    #y_train = np_array_int16(dependent_var)
+    y_train = dependent_var
+    #foo = [[[1.1+i+j+k for i in range(256)] for j in range(256)] for k in range(3)]
+    #foo = copy.deepcopy(independent_var)
     if 'data_x' in SD:
-        s = time.time()
-        SD['data_x'].append(independent_var)
-        SD['data_y'].append(dependent_var)
-        e = time.time()
-        plpy.info('time taken to append data {}s'.format(e-s))
+        #s = time.time()
+        #SD['data_x'].append(foo)
+        SD['data_x'].append(x_train)
+        SD['data_y'].append(y_train)
+        #SD['data_x'].append(independent_var)
+        #SD['data_y'].append(dependent_var)
+        #e = time.time()
+        #plpy.info('time taken to append data {}s'.format(e-s))
     else:
-        SD['data_x'] = [independent_var]
-        SD['data_y'] = [dependent_var]
-
+        #SD['data_x'] = [foo]
+        SD['data_x'] = [x_train]
+        SD['data_y'] = [y_train]
+        #SD['data_x'] = [independent_var]
+        #SD['data_y'] = [dependent_var]
+    
+    del independent_var
+    del dependent_var
 
     # image_count = len(x_train)
     # Aggregating number of images, loss and accuracy
@@ -435,21 +450,24 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     # Update image count, check if we are done
     # plpy.info('agg image count is {} and total images is {}'.format(
     #     agg_image_count, total_images))
+    #plpy.info('total images processed {}'.format(agg_image_count))
+    #plpy.info('len and size of x is {} {} bytes and {} bytes'.format(
+    #     len(SD['data_x']),
+    #     sys.getsizeof(SD['data_x']),
+    #     sys.getsizeof(independent_var)
+    # ))
+
     if agg_image_count == total_images:
-        # plpy.info('len and size of x is {} {} bytes'.format(
-        #     len(SD['data_x']),
-        #     sys.getsizeof(SD['data_x']))
-        # )
         with K.tf.device(device_name):
             #TODO consider not doing this every time
             fit_params = parse_and_validate_fit_params(fit_params)
-            s = time.time()
+            #s = time.time()
             x_train = np_array_float32(SD['data_x'])
             # plpy.info('x_train shape is {}'.format(x_train.shape))
             y_train = np_array_int16(SD['data_y'])
-            e = time.time()
-            plpy.info('time taken to convert to np array {}s'.format(e-s))
-            segment_model.fit(x_train, y_train, **fit_params)
+            #e = time.time()
+            #plpy.info('time taken to convert to np array {}s'.format(e-s))
+            #segment_model.fit(x_train, y_train, **fit_params)
         with K.tf.device(device_name):
             updated_weights = segment_model.get_weights()
 
@@ -477,7 +495,8 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     return new_state
 
 def fit_merge(state1, state2, **kwargs):
-
+    
+    return None
     # Return if called early
     if not state1 or not state2:
         return state1 or state2
@@ -498,6 +517,8 @@ def fit_merge(state1, state2, **kwargs):
 
 def fit_final(state, **kwargs):
     # Return if called early
+
+    return None
     if not state:
         return state
 

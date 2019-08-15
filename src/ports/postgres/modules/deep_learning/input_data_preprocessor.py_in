@@ -180,15 +180,10 @@ class InputDataPreprocessorDL(object):
             CREATE TABLE {self.output_table} AS
             SELECT * FROM
             (
-                SELECT {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                       {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.y]) AS {y},
-                       ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id
+                SELECT {norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[] AS {x},
+                       {norm_tbl}.y AS {y}
                 FROM {norm_tbl}
-                GROUP BY buffer_id
             ) b
-            {distributed_by_clause}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
