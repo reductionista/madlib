@@ -146,6 +146,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
+        plpy.info('fit(): Executing SELECT query on segments with plpy.execute for iteration {}'.format(i))
         iteration_result = plpy.execute(run_training_iteration,
                                         [serialized_weights])[0]['iteration_result']
         end_iteration = time.time()
@@ -437,7 +438,8 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
                                                       images_per_seg)
 
     if image_count < total_images:
-        plpy.info("Returning with empty state, since image_count ({0}) < total_images ({1})".format(image_count, total_images))
+        plpy.info("image_count ({0}) < total_images ({1}), still concatenating images".format(image_count, total_images))
+        plpy.info("current time: {}".format(datetime.datetime.now()))
         # Just accumulate, until we've loaded all images
         return []
     plpy.info("Actually running keras now, since image_count ({0}) >= total_images ({1})".format(image_count, total_images))
@@ -463,7 +465,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     with K.tf.device(device_name):
         updated_weights = segment_model.get_weights()
 
-    plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
+#    plpy.info("Shape of updated_weights: {}".format(map(lambda x : x.shape, updated_weights)))
 
     # Re-serialize the weights
     # Update image count, check if we are done
@@ -487,8 +489,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     plpy.info('Total time spent in transition over full iteration = {0}s'\
         .format(end_transition - start_transition))
 
-    return [new_state]  # Must be list, so it can be concatenated with lists
-                        #  from other segments by internal greenplum UDF arch
+    return new_state
 
 def fit_merge(state1, state2, **kwargs):
 
@@ -507,6 +508,7 @@ def fit_merge(state1, state2, **kwargs):
     total_weights = weights1 + weights2
 
     # Return the merged state
+    plpy.info("fit_merge: Returning from merge function... image_count = {}".format(image_count))
     return madlib_keras_serializer.serialize_state_with_1d_weights(
         image_count, total_weights)
 
@@ -521,6 +523,7 @@ def fit_final(state, **kwargs):
 
     # Averaging the weights
     weights /= image_count
+    plpy.info("fit_final: Returning from final function... image_count = {}".format(image_count))
     return madlib_keras_serializer.serialize_state_with_1d_weights(
         image_count, weights)
 
