@@ -1828,3 +1828,18 @@ RETURNS VARCHAR AS $$
 $$ LANGUAGE sql IMMUTABLE
 m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._fit_init(
+            /* model_arch */            TEXT,
+            /* compile_params */        TEXT,
+            /* fit_params */            TEXT,
+            /* gp_segment_id_col */     TEXT,
+            /* seg_ids_train */         INTEGER[],
+            /* images_per_seg_train */  INTEGER[],
+            /* gpus_per_host */         INTEGER,
+            /* segments_per_host */     INTEGER,
+            /* model_weights */         BYTEA
+ )
+RETURNS VOID AS
+$$
+PythonFunction(`deep_learning', `_fit_init')
+$$ LANGUAGE plpythonu

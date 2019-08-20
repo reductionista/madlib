@@ -117,6 +117,23 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     validation_set_provided = bool(validation_table)
     validation_metrics = []; validation_loss = []
 
+    run_training_iteration = plpy.prepare("""
+        SELECT {schema_madlib}._fit_init(
+            $MAD${model_arch}$MAD$::TEXT,
+            {compile_params_to_pass}::TEXT,
+            {fit_params_to_pass}::TEXT,
+            {gp_segment_id_col},
+            ARRAY{seg_ids_train},
+            ARRAY{images_per_seg_train},
+            {gpus_per_host},
+            {segments_per_host},
+            $1
+        )
+        FROM gp_dist_random('gp_id') 
+        """.format(**locals()), ["bytea"])
+
+    # TODO: call plp.execute on _fit_init command
+ 
     # Prepare the SQL for running distributed training via UDA
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
@@ -292,6 +309,9 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # TODO add a unit test for this in a future PR
     reset_cuda_env(original_cuda_env)
 
+def _fit_init()
+    pass
+# TODO
 
 def get_initial_weights(model_table, model_arch_result, warm_start, gpus_per_host):
     """
