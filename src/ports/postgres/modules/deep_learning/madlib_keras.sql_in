@@ -1526,15 +1526,6 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     state                      BYTEA,
     dependent_var              SMALLINT[],
     independent_var            REAL[],
-    model_architecture         TEXT,
-    compile_params             TEXT,
-    fit_params                 TEXT,
-    current_seg_id             INTEGER,
-    seg_ids                    INTEGER[],
-    images_per_seg             INTEGER[],
-    gpus_per_host              INTEGER,
-    segments_per_host          INTEGER,
-    prev_serialized_weights    BYTEA,
     is_final                   BOOLEAN
 ) RETURNS BYTEA AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
@@ -1583,28 +1574,10 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     SMALLINT[],
     REAL[],
-    TEXT,
-    TEXT,
-    TEXT,
-    INTEGER,
-    INTEGER[],
-    INTEGER[],
-    INTEGER,
-    INTEGER,
-    BYTEA,
     BOOLEAN);
 CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
     /* dep_var */                SMALLINT[],
     /* ind_var */                REAL[],
-    /* model_architecture */     TEXT,
-    /* compile_params */         TEXT,
-    /* fit_params */             TEXT,
-    /* current_seg_id */         INTEGER,
-    /* seg_ids*/                 INTEGER[],
-    /* images_per_seg*/          INTEGER[],
-    /* gpus_per_host  */         INTEGER,
-    /* segments_per_host  */     INTEGER,
-    /* serialized_weights */     BYTEA,
     /* is_final */               BOOLEAN
 )(
     STYPE=BYTEA,
@@ -1829,17 +1802,21 @@ $$ LANGUAGE sql IMMUTABLE
 m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA._fit_init(
-            /* model_arch */            TEXT,
-            /* compile_params */        TEXT,
-            /* fit_params */            TEXT,
-            /* gp_segment_id_col */     TEXT,
-            /* seg_ids_train */         INTEGER[],
-            /* images_per_seg_train */  INTEGER[],
-            /* gpus_per_host */         INTEGER,
-            /* segments_per_host */     INTEGER,
-            /* model_weights */         BYTEA
+            model_arch               TEXT,
+            compile_params           TEXT,
+            fit_params               TEXT,
+            gp_segment_id            INTEGER,
+            seg_ids_train            INTEGER[],
+            images_per_seg_train     INTEGER[],
+            gpus_per_host            INTEGER,
+            segments_per_host        INTEGER,
+            model_weights            BYTEA
  )
 RETURNS VOID AS
 $$
-PythonFunction(`deep_learning', `_fit_init')
+    PythonFunctionBodyOnly(`deep_learning', `madlib_keras')
+    with AOControl(False):
+        madlib_keras._fit_init(**globals())
 $$ LANGUAGE plpythonu
+m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
+

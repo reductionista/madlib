@@ -733,3 +733,9 @@ ORDER BY 1,2;
         """.format(schema_madlib='MADLIB_SCHEMA')
 $$ LANGUAGE PLPYTHONU IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.test_cfunc(dependent_var smallint[], independent_var real[]) RETURNS void
+AS 'MODULE_PATHNAME', 'test_cfunc'
+LANGUAGE C
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+

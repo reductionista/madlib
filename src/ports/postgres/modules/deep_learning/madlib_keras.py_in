@@ -59,6 +59,9 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         gpus_per_host=0, validation_table=None,
         metrics_compute_frequency=None, warm_start=False, name="",
         description="", **kwargs):
+
+    time_start_fit = time.time()
+
     source_table = quote_ident(source_table)
     model_arch_table = quote_ident(model_arch_table)
     fit_params = "" if not fit_params else fit_params
@@ -117,7 +120,16 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     validation_set_provided = bool(validation_table)
     validation_metrics = []; validation_loss = []
 
-    run_training_iteration = plpy.prepare("""
+    compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
+    fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
+
+    # Run fit_init() once on each segment, to load GD in each
+    #  python process with init params for fit_step() UDA
+
+    time_start_fit_init = time.time()
+    plpy.info("{} elapsed in fit() before calling fit_init()".format(time_start_fit_init - time_start_fit))
+
+    run_fit_init = plpy.prepare("""
         SELECT {schema_madlib}._fit_init(
             $MAD${model_arch}$MAD$::TEXT,
             {compile_params_to_pass}::TEXT,
@@ -131,29 +143,22 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         )
         FROM gp_dist_random('gp_id') 
         """.format(**locals()), ["bytea"])
+    plpy.execute(run_fit_init, [serialized_weights])
 
-    # TODO: call plp.execute on _fit_init command
- 
-    # Prepare the SQL for running distributed training via UDA
-    compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
-    fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
+    time_end_fit_init = time.time()
+    plpy.info("{} elapsed during fit_init() (for all segments)".format(time_end_fit_init - time_start_fit_init))
+
+    # Prepare for running fit_step() on each segment
+    #  many times in a loop
+
     run_training_iteration = plpy.prepare("""
         SELECT {schema_madlib}.fit_step(
             {mb_dep_var_col},
             {mb_indep_var_col},
-            $MAD${model_arch}$MAD$::TEXT,
-            {compile_params_to_pass}::TEXT,
-            {fit_params_to_pass}::TEXT,
-            {gp_segment_id_col},
-            ARRAY{seg_ids_train},
-            ARRAY{images_per_seg_train},
-            {gpus_per_host},
-            {segments_per_host},
-            $1,
-            $2
+            $1
         ) AS iteration_result
         FROM {source_table}
-        """.format(**locals()), ["bytea", "boolean"])
+        """.format(**locals()), ["boolean"])
 
     # Define the state for the model and loss/metric storage lists
     training_loss, training_metrics, metrics_elapsed_time = [], [], []
@@ -161,13 +166,16 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
     # get the size of serialized model weights string in KB
     model_size = sys.getsizeof(serialized_weights)/1024.0
+    end_iteration = None
 
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
+        if end_iteration:
+            plpy.info("Time in iteration {} spent outside of fit_step(): {}".format(i-1, start_iteration - end_iteration))
         is_final = (i == num_iterations)
         iteration_result = plpy.execute(run_training_iteration,
-                                        [serialized_weights, is_final])[0]['iteration_result']
+                                        [is_final])[0]['iteration_result']
         end_iteration = time.time()
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
@@ -176,7 +184,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
         if should_compute_metrics_this_iter(i, metrics_compute_frequency,
                                             num_iterations):
-            # Compute loss/accuracyçfor training data.
+            # Compute loss/accuracy for training data.
             compute_out = compute_loss_and_metrics(
                 schema_madlib, source_table, compile_params_to_pass, model_arch,
                 serialized_weights, gpus_per_host, segments_per_host, seg_ids_train,
@@ -309,10 +317,22 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # TODO add a unit test for this in a future PR
     reset_cuda_env(original_cuda_env)
 
-def _fit_init()
-    pass
-# TODO
+def _fit_init(model_arch, compile_params, fit_params, gp_segment_id,
+              seg_ids_train, images_per_seg_train, gpus_per_host,
+              segments_per_host, model_weights, **kwargs):
+    GD = kwargs['GD']
 
+    GD.clear()  # Let's start fresh
+    GD['model_arch'] = model_arch
+    GD['compile_params'] = compile_params
+    GD['fit_params'] = fit_params
+    GD['gp_segment_id'] = gp_segment_id
+    GD['seg_ids_train'] = seg_ids_train
+    GD['images_per_seg_train'] = images_per_seg_train
+    GD['gpus_per_host'] = gpus_per_host
+    GD['segments_per_host'] = segments_per_host
+    GD['model_weights'] = model_weights
+ 
 def get_initial_weights(model_table, model_arch_result, warm_start, gpus_per_host):
     """
         If warm_start is True, return back initial weights from model table.
@@ -429,17 +449,30 @@ def should_compute_metrics_this_iter(curr_iter, metrics_compute_frequency,
            curr_iter == num_iterations
 
 
-def fit_transition(state, dependent_var, independent_var, model_architecture,
-                   compile_params, fit_params, current_seg_id, seg_ids,
-                   images_per_seg, gpus_per_host, segments_per_host,
-                   prev_serialized_weights, is_final=True,
+def fit_transition(state, dependent_var, independent_var, is_final=True,
                    is_cerebro=False, **kwargs):
 
     if not independent_var or not dependent_var:
         return state
 
-    start_transition = time.time()
+    GD = kwargs['GD']
     SD = kwargs['SD']
+
+    time_start_transition = time.time()
+
+    if 'time_end_transition' in SD:
+        plpy.info('Time spent outside of fit_transition: {}'.format(time_start_transition - SD['time_end_transition']))
+
+    model_architecture   = GD['model_arch']
+    compile_params       = GD['compile_params']
+    fit_params           = GD['fit_params']
+    current_seg_id       = GD['gp_segment_id']
+    seg_ids              = GD['seg_ids_train']
+    images_per_seg       = GD['images_per_seg_train']
+    gpus_per_host        = GD['gpus_per_host']
+    segments_per_host    = GD['segments_per_host']
+    prev_serialized_weights = GD['model_weights']
+ 
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                    current_seg_id)
 
@@ -502,6 +535,7 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     history = segment_model.fit(x_train, y_train, **fit_params)
     end_fit = time.time()
     image_count = len(x_train)
+    plpy.info("Time spent inside keras fit: {}".format(end_fit - start_fit ))
 
     # Aggregating number of images, loss and accuracy
     agg_image_count += image_count
@@ -532,7 +566,10 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
 
     del x_train
     del y_train
-    end_transition = time.time()
+
+    time_end_transition = time.time()
+    plpy.info("Time spent in fit_transition: {}".format(time_end_transition - time_start_transition))
+    SD['time_end_transition'] = time_end_transition
 
     return new_state
 

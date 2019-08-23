@@ -2106,3 +2106,10 @@ General_Array_to_Cumulative_Array(
 
     return pgarray;
 }
+
+PG_FUNCTION_INFO_V1(test_cfunc);
+Datum
+test_cfunc(PG_FUNCTION_ARGS) {
+    PG_GETARG_ARRAYTYPE_P(0);
+    PG_GETARG_ARRAYTYPE_P(1);
+}
