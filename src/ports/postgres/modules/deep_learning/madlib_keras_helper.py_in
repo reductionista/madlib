@@ -20,7 +20,7 @@
 import numpy as np
 from utilities.utilities import is_platform_pg
 import plpy
-
+import time
 
 ############### Constants used in other deep learning files #########
 # Name of columns in model summary table.
@@ -54,7 +54,10 @@ def expand_input_dims(input_data):
     return input_data
 
 def np_array_float32(var):
-    return np.array(var, dtype=np.float32)
+    start_decode = time.time()
+    ret = np.array(var, dtype=np.float32)
+    plpy.info("np_array_float32: took {}s calling np.array()".format(time.time() - start_decode))
+    return ret
 
 def np_array_int16(var):
     return np.array(var, dtype=np.int16)
