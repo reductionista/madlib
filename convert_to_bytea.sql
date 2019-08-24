@@ -4,5 +4,5 @@ AS
 $$
 import numpy as np
 
-return np.array(independent_var).tostring()
+return np.array(independent_var, dtype=np.float32).tobytes()
 $$ LANGUAGE plpythonu;
