@@ -131,6 +131,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # get the size of serialized model weights string in KB
     model_size = sys.getsizeof(serialized_weights)/1024.0
 
+    end_iteration = None
+
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
