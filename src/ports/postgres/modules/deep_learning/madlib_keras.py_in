@@ -472,11 +472,14 @@ def fit_merge(state1, state2, **kwargs):
     # Aggregate the weights
     total_weights = weights1 + weights2
 
+    serialized_weights = madlib_keras_serializer.serialize_state_with_1d_weights(
+        image_count, total_weights)
+
+#    with MinWarning("warning"):
     plpy.info("Time spent in merge: {}".format(time.time() - merge_start))
 
     # Return the merged state
-    return madlib_keras_serializer.serialize_state_with_1d_weights(
-        image_count, total_weights)
+    return serialized_weights
 
 def fit_final(state, **kwargs):
     # Return if called early
