@@ -84,8 +84,10 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     start_deserialization = time.time()
     model_arch, model_weights = get_model_arch_weights(model_arch_table, model_arch_id)
     num_classes = get_num_classes(model_arch)
+
     input_shape = get_input_shape(model_arch)
     fit_validator.validate_input_shapes(input_shape)
+
     gp_segment_id_col = '0' if is_platform_pg() else 'gp_segment_id'
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights,
@@ -458,6 +460,8 @@ def fit_merge(state1, state2, **kwargs):
     if not state1 or not state2:
         return state1 or state2
 
+    merge_start = time.time()
+
     # Deserialize states
     image_count1, weights1 = madlib_keras_serializer.deserialize_as_image_1d_weights(state1)
     image_count2, weights2 = madlib_keras_serializer.deserialize_as_image_1d_weights(state2)
@@ -468,6 +472,8 @@ def fit_merge(state1, state2, **kwargs):
     # Aggregate the weights
     total_weights = weights1 + weights2
 
+    plpy.info("Time spent in merge: {}".format(time.time() - merge_start))
+
     # Return the merged state
     return madlib_keras_serializer.serialize_state_with_1d_weights(
         image_count, total_weights)
@@ -477,14 +483,20 @@ def fit_final(state, **kwargs):
     if not state:
         return state
 
+    final_start = time.time()
+
     image_count, weights = madlib_keras_serializer.deserialize_as_image_1d_weights(state)
     if image_count == 0:
         plpy.error("fit_final: Total images processed is 0")
 
+
     # Averaging the weights
     weights /= image_count
-    return madlib_keras_serializer.serialize_state_with_1d_weights(
+    ret_val =  madlib_keras_serializer.serialize_state_with_1d_weights(
         image_count, weights)
+    
+    plpy.info("Time spent in final: {}".format(time.time() - final_start))
+    return ret_val
 
 def get_segments_and_gpus(gpus_per_host):
     gpus_per_host = 0 if gpus_per_host is None else gpus_per_host
