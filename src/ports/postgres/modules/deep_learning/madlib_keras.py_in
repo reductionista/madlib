@@ -88,7 +88,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     num_classes = get_num_classes(model_arch)
 
     input_shape = get_input_shape(model_arch)
-    fit_validator.validate_input_shapes(input_shape)
+#    fit_validator.validate_input_shapes(input_shape)
 
     gp_segment_id_col = '0' if is_platform_pg() else 'gp_segment_id'
 

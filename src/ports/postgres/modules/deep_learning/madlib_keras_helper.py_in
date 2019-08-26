@@ -56,7 +56,12 @@ def expand_input_dims(input_data):
     return input_data
 
 def np_array_float32(var):
-    return np.array(var, dtype=np.float32)
+    start_decode = time.time()
+    np_var = np.frombuffer(var, dtype=np.float32)
+    np_var.shape = [500, 256, 256, 3]
+#    plpy.info("np_array_float32: took {}s decoding BYTEA".format(time.time() - start_decode))
+    return np_var
+#    return np.array(var, dtype=np.float32)
 
 def np_array_int16(var):
     return np.array(var, dtype=np.int16)

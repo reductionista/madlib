@@ -1707,7 +1707,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     state                      BYTEA,
     dependent_var              SMALLINT[],
-    independent_var            REAL[],
+    independent_var            BYTEA,
     model_architecture         TEXT,
     compile_params             TEXT,
     fit_params                 TEXT,
@@ -1742,7 +1742,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     SMALLINT[],
-    REAL[],
+    BYTEA,
     TEXT,
     TEXT,
     TEXT,
@@ -1754,7 +1754,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.fit_step(
     BYTEA);
 CREATE AGGREGATE MADLIB_SCHEMA.fit_step(
     /* dep_var */                SMALLINT[],
-    /* ind_var */                REAL[],
+    /* ind_var */                BYTEA,
     /* model_architecture */     TEXT,
     /* compile_params */         TEXT,
     /* fit_params */             TEXT,
@@ -1931,7 +1931,7 @@ m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA');
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     state                              REAL[3],
     dependent_var                      SMALLINT[],
-    independent_var                    REAL[],
+    independent_var                    BYTEA,
     model_architecture                 TEXT,
     serialized_weights                 BYTEA,
     compile_params                     TEXT,
@@ -1977,7 +1977,7 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.internal_keras_evaluate(
 
 CREATE AGGREGATE MADLIB_SCHEMA.internal_keras_evaluate(
     /* dependent_var */                SMALLINT[],
-    /* independent_var */              REAL[],
+    /* independent_var */              BYTEA,
     /* model_architecture */           TEXT,
     /* model_data */                   BYTEA,
     /* compile_params */               TEXT,
