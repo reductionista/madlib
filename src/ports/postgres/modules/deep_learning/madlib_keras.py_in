@@ -60,6 +60,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
     mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
 
+    time_start_fit = time.time()
+
     fit_validator = FitInputValidator(
         source_table, validation_table, model, model_arch_table,
         model_arch_id, mb_dep_var_col, mb_indep_var_col,
@@ -132,6 +134,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     # Run distributed training for specified number of iterations
     for i in range(1, num_iterations+1):
         start_iteration = time.time()
+        if end_iteration:
+            plpy.info("Time in iteration {} spent outside of fit_step(): {}".format(i-1, start_iteration - end_iteration))
         iteration_result = plpy.execute(run_training_iteration,
                                         [serialized_weights])[0]['iteration_result']
         end_iteration = time.time()
@@ -394,10 +398,15 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     if not independent_var or not dependent_var:
         return state
 
-    start_transition = time.time()
     SD = kwargs['SD']
     device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                    current_seg_id)
+
+    time_start_transition = time.time()
+
+    if 'time_end_transition' in SD:
+        plpy.info('Time spent outside of fit_transition: {}'.format(time_start_transition - SD['time_end_transition']))
+
     # Set up system if this is the first buffer on segment'
     if not state:
         set_keras_session(device_name, gpus_per_host, segments_per_host)
@@ -424,6 +433,9 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     end_fit = time.time()
 
     image_count = len(x_train)
+
+    plpy.info("Time spent inside keras fit: {}".format(end_fit - start_fit ))
+
     # Aggregating number of images, loss and accuracy
     agg_image_count += image_count
 
@@ -450,7 +462,9 @@ def fit_transition(state, dependent_var, independent_var, model_architecture,
     del x_train
     del y_train
 
-    end_transition = time.time()
+    time_end_transition = time.time()
+    plpy.info("Time spent in fit_transition: {}".format(time_end_transition - time_start_transition))
+    SD['time_end_transition'] = time_end_transition
 
     return new_state
 
