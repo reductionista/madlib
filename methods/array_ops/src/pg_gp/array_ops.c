@@ -14,6 +14,7 @@
 #include "utils/typcache.h"
 #include "access/hash.h"
 #include <math.h>
+#include <python2.7/Python.h>
 
 #ifndef NO_PG_MODULE_MAGIC
     PG_MODULE_MAGIC;
@@ -2112,4 +2113,47 @@ Datum
 test_cfunc(PG_FUNCTION_ARGS) {
     PG_GETARG_ARRAYTYPE_P(0);
     PG_GETARG_ARRAYTYPE_P(1);
+
+#define SZ 200*1024*1024
+
+    PyObject *pValue, *pArgs, *pName, *pModule, *pFunc;
+
+    Py_Initialize();
+
+    char *buf = palloc(SZ+1);
+    memset(buf, '1', SZ);
+    buf[SZ] = '\0';
+
+    PyRun_SimpleString("import sys");
+    PyRun_SimpleString("sys.path.append('/usr/local/greenplum-db/lib/python')");
+    pName = PyString_FromString("mod");
+
+    pModule = PyImport_Import(pName);
+//    Py_DECREF(pName);
+    pFunc = PyObject_GetAttrString(pModule, "myfunc");
+    if (pFunc && PyCallable_Check(pFunc)) {
+        pArgs = PyTuple_New(1);
+
+        pValue = PyString_FromString(buf);
+        if (!pValue) {
+//            Py_DECREF(pArgs);
+//            Py_DECREF(pModule);
+//            Py_DECREF(pFunc);
+            fprintf(stderr, "Cannot convert argument\n");
+            return 1;
+        }
+
+        PyTuple_SetItem(pArgs, 0, pValue);
+        pValue = PyObject_CallObject(pFunc, pArgs);
+
+        elog(INFO, "Result of call: %ld\n", PyInt_AsLong(pValue));
+
+//        Py_DECREF(pArgs);
+//        Py_DECREF(pModule);
+//        Py_DECREF(pValue);
+    } 
+//    Py_DECREF(pFunc);
+    pfree(buf);
+
+    return 0;
 }
