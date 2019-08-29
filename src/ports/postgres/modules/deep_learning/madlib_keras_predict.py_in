@@ -78,33 +78,71 @@ class BasePredict():
             self.test_table)
         segments_per_host = get_segments_per_host()
 
-        predict_query = plpy.prepare("""
-            CREATE TABLE {self.output_table} AS
-            SELECT {self.id_col}, {prediction_select_clause}
-            FROM (
+        set_gd_query=plpy.prepare("""
+                   SELECT {self.schema_madlib}.internal_set_predict_GD
+                    ($MAD${self.model_arch}$MAD$::text,
+                    $1,
+                    {self.is_response},
+                    {self.normalizing_const}::double precision,
+                    ARRAY{seg_ids_test},
+                    ARRAY{images_per_seg_test},
+                    {self.gpus_per_host},
+                    {segments_per_host}
+                    ) from gp_dist_random('gp_id')
+                    """.format(self=self, seg_ids_test=seg_ids_test,
+                               images_per_seg_test=images_per_seg_test,
+                               segments_per_host=segments_per_host),
+                        ["bytea"]) #Using gp_dist_random('gp_id')
+
+        plpy.execute(set_gd_query, [self.model_weights])
+
+        res = plpy.execute("""
                 SELECT {self.test_table}.{self.id_col},
                        ({self.schema_madlib}.internal_keras_predict
-                           ({self.independent_varname},
-                            $1,
-                            $2,
-                            {self.is_response},
-                            {self.normalizing_const},
-                            {gp_segment_id_col},
-                            ARRAY{seg_ids_test},
-                            ARRAY{images_per_seg_test},
-                            {self.gpus_per_host},
-                            {segments_per_host})
+                           ({self.independent_varname}, {gp_segment_id_col})
                        ) AS {intermediate_col}
             FROM {self.test_table}
-            ) q
-            """.format(self=self, prediction_select_clause=prediction_select_clause,
-                       seg_ids_test=seg_ids_test,
-                       images_per_seg_test=images_per_seg_test,
+            """.format(self=self,
                        gp_segment_id_col=gp_segment_id_col,
-                       segments_per_host=segments_per_host,
-                       intermediate_col=intermediate_col),
-                                     ["text", "bytea"])
-        plpy.execute(predict_query, [self.model_arch, self.model_weights])
+                       intermediate_col=intermediate_col))
+
+# TODO
+#        plpy.execute("""
+#            CREATE TABLE {self.output_table} ({self.id_col} INTEGER,
+#                {prediction_select_clause} REAL[]) VALUES
+#                (  {res}   )
+#                SELECT {self.id_col}, {prediction_select_clause}
+#                    ) q distributed by ({self.id_col})
+#        """.format(self=self,
+#                   prediction_select_clause=prediction_select_clause))
+
+#        predict_query = plpy.prepare("""
+#            CREATE TABLE {self.output_table} AS
+#            SELECT {self.id_col}, {prediction_select_clause}
+#            FROM (
+#                SELECT {self.test_table}.{self.id_col},
+#                       ({self.schema_madlib}.internal_keras_predict
+#                           ({self.independent_varname},
+#                            $1,
+#                            $2,
+#                            {self.is_response},
+#                            {self.normalizing_const},
+##                            {gp_segment_id_col},
+#                            ARRAY{seg_ids_test},
+#                            ARRAY{images_per_seg_test},
+#                            {self.gpus_per_host},
+#                            {segments_per_host})
+#                       ) AS {intermediate_col}
+#            FROM {self.test_table}
+#            ) q
+#            """.format(self=self, prediction_select_clause=prediction_select_clause,
+#                       seg_ids_test=seg_ids_test,
+#                       images_per_seg_test=images_per_seg_test,
+#                       gp_segment_id_col=gp_segment_id_col,
+#                       segments_per_host=segments_per_host,
+#                       intermediate_col=intermediate_col),
+#                                     ["text", "bytea"])
+#        plpy.execute(predict_query, [model_arch, self.model_weights])
 
     def set_default_class_values(self, class_values):
         self.class_values = class_values
@@ -158,6 +196,21 @@ class Predict(BasePredict):
         InputValidator.validate_input_shape(
             self.test_table, self.independent_varname, input_shape, 1)
 
+def set_predict_GD(model_architecture, model_data,
+                   is_response, normalizing_const, seg_ids,
+                   images_per_seg, gpus_per_host, segments_per_host,
+                   **kwargs):
+    GD = kwargs['GD']
+    GD['model_architecture'] = model_architecture
+    GD['model_data'] = model_data
+    GD['is_response'] = is_response
+    GD['normalizing_const'] = normalizing_const
+    GD['seg_ids'] = seg_ids
+    GD['images_per_seg'] = images_per_seg
+    GD['gpus_per_host'] = gpus_per_host
+    GD['segments_per_host'] = segments_per_host
+
+
 @MinWarning("warning")
 class PredictBYOM(BasePredict):
     def __init__(self, schema_madlib, model_arch_table, model_arch_id,
@@ -210,13 +263,26 @@ class PredictBYOM(BasePredict):
             self.test_table, self.independent_varname,
             get_input_shape(self.model_arch), 1)
 
-def internal_keras_predict(independent_var, model_architecture, model_data,
-                           is_response, normalizing_const, current_seg_id, seg_ids,
-                           images_per_seg, gpus_per_host, segments_per_host,
-                           **kwargs):
-    SD = kwargs['SD']
+#def internal_keras_predict(independent_var, model_architecture, model_data,
+#                           is_response, normalizing_const, current_seg_id, seg_ids,
+#                           images_per_seg, gpus_per_host, segments_per_host,
+#                           **kwargs):
+
+def internal_keras_predict(independent_var, current_seg_id, **kwargs):
     model_key = 'segment_model_predict'
     row_count_key = 'row_count'
+
+    SD = kwargs['SD']
+    GD = kwargs['GD']
+    model_data = GD['model_data']
+    model_architecture = GD['model_architecture']
+    is_response = GD['is_response']
+    normalizing_const = GD['normalizing_const']
+    seg_ids = GD['seg_ids']
+    images_per_seg = GD['images_per_seg']
+    gpus_per_host = GD['gpus_per_host']
+    segments_per_host = GD['segments_per_host']
+
     try:
         device_name = get_device_name_and_set_cuda_env(gpus_per_host,
                                                        current_seg_id)
