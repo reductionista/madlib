@@ -20,6 +20,7 @@
 import plpy
 
 import keras
+import time
 from keras import backend as K
 from keras.layers import *
 from keras.models import *
@@ -78,8 +79,10 @@ class BasePredict():
             self.test_table)
         segments_per_host = get_segments_per_host()
 
+        ## Set GD on 2 Slices via JOIN
         set_gd_query=plpy.prepare("""
-                   SELECT {self.schema_madlib}.internal_set_predict_GD
+                    Select * from 
+                   (SELECT {self.schema_madlib}.internal_set_predict_GD
                     ($MAD${self.model_arch}$MAD$::text,
                     $1,
                     {self.is_response},
@@ -88,15 +91,50 @@ class BasePredict():
                     ARRAY{images_per_seg_test},
                     {self.gpus_per_host},
                     {segments_per_host}
-                    ) from gp_dist_random('gp_id')
+                    ) from gp_dist_random('gp_id')) t1
+                    JOIN
+                    (SELECT {self.schema_madlib}.internal_set_predict_GD
+                    ($MAD${self.model_arch}$MAD$::text,
+                    $1,
+                    {self.is_response},
+                    {self.normalizing_const}::double precision,
+                    ARRAY{seg_ids_test},
+                    ARRAY{images_per_seg_test},
+                    {self.gpus_per_host},
+                    {segments_per_host}
+                    ) from gp_dist_random('gp_id')) t2 on true
                     """.format(self=self, seg_ids_test=seg_ids_test,
                                images_per_seg_test=images_per_seg_test,
                                segments_per_host=segments_per_host),
                         ["bytea"]) #Using gp_dist_random('gp_id')
 
+#        set_gd_query_once=plpy.prepare("""
+#                   SELECT {self.schema_madlib}.internal_set_predict_GD
+#                    ($MAD${self.model_arch}$MAD$::text,
+#                    $1,
+#                    {self.is_response},
+#                    {self.normalizing_const}::double precision,
+#                    ARRAY{seg_ids_test},
+#                    ARRAY{images_per_seg_test},
+#                    {self.gpus_per_host},
+#                    {segments_per_host}
+#                    ) from gp_dist_random('gp_id')
+#                    """.format(self=self, seg_ids_test=seg_ids_test,
+#                        images_per_seg_test=images_per_seg_test,
+#                        segments_per_host=segments_per_host),
+#                    ["bytea"])
+#
+#        start_time = time.time();
+#        plpy.execute(set_gd_query_once, [self.model_weights])
+#        plpy.info("SetGD time single_call: {}".format(time.time() - start_time))
+        
+        start_time = time.time();
         plpy.execute(set_gd_query, [self.model_weights])
+        plpy.info("SetGD time join_call: {}".format(time.time() - start_time))
 
-        res = plpy.execute("""
+
+        plpy.execute("""
+                CREATE TEMP TABLE tt AS        
                 SELECT {self.test_table}.{self.id_col},
                        ({self.schema_madlib}.internal_keras_predict
                            ({self.independent_varname}, {gp_segment_id_col})
@@ -105,6 +143,11 @@ class BasePredict():
             """.format(self=self,
                        gp_segment_id_col=gp_segment_id_col,
                        intermediate_col=intermediate_col))
+        plpy.execute("""
+                CREATE TABLE {self.output_table} AS
+                SELECT {self.id_col}, {prediction_select_clause}
+                from tt""".format(self=self, prediction_select_clause=prediction_select_clause))
+        plpy.execute("DROP TABLE tt")
 
 # TODO
 #        plpy.execute("""
