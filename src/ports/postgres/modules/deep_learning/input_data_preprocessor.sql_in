@@ -828,12 +828,18 @@ RETURNS VARCHAR AS $$
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
+    state       double precision[],
+    x           double precision[]
+) RETURNS double precision[] AS
+    'MODULE_PATHNAME', 'my_array_concat_transition'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(anyarray);
-CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(anyarray) (
-   SFUNC = array_cat,
-   STYPE = anyarray,
-   PREFUNC = array_cat
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(double precision[]);
+CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(double precision[]) (
+   SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
+   STYPE = double precision[]
    );
 
 CREATE FUNCTION MADLIB_SCHEMA.convert_array_to_bytea(var REAL[])
