@@ -3,6 +3,8 @@
 #include <utils/array.h>
 #include <utils/memutils.h>
 #include <catalog/pg_type.h>
+//#include <dbconnector/Backend.hpp>
+#include "my_array_concat.hpp"
 
 namespace madlib {
 
