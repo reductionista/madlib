@@ -1,2 +1,2 @@
-
-DECLARE_UDF(deep_learning, my_array_concat_transition)
+PG_FUNCTION_INFO_V1(my_array_concat_transition);
+Datum my_array_concat_transition(PG_FUNCTION_ARGS);
