@@ -15,7 +15,6 @@
 #include "linear_systems/linear_systems.hpp"
 #include "sample/sample.hpp"
 #include "stats/stats.hpp"
-//#include "deep_learning/my_array_concat.hpp"
 #include "convex/convex.hpp"
 #include "crf/linear_crf.hpp"
 #include "crf/viterbi.hpp"
