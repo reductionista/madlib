@@ -2109,7 +2109,6 @@ General_Array_to_Cumulative_Array(
 
 //======= Functions below all needed for my_array_concat_transition()
 
-/* useful macros for accessing float4 arrays */
 #define ARRNELEMS(x)  ArrayGetNItems(ARR_NDIM(x), ARR_DIMS(x))
 
 /* Create a new "ndims"-D array of floats with room for "num" elements */
@@ -2117,7 +2116,7 @@ ArrayType *
 new_floatArrayType(int ndims, int *shape, int num)
 {
 	ArrayType  *r;
-	unsigned long nbytes = ARR_OVERHEAD_NONULLS(1) + sizeof(float) * num;
+	unsigned long nbytes = ARR_OVERHEAD_NONULLS(1) + sizeof(float4) * num;
 
 	r = (ArrayType *) palloc0(nbytes);
 
@@ -2134,14 +2133,18 @@ new_floatArrayType(int ndims, int *shape, int num)
 	return r;
 }
 
+// Copy and expand array size by x times
 ArrayType *
-copy_floatArrayType(ArrayType *a)
+copy_floatArrayType(ArrayType *a, int x)
 {
 	ArrayType  *r;
 	int	n = ARRNELEMS(a);
 
-	r = new_floatArrayType(1, ARR_DIMS(a), n);
-	memcpy(ARR_DATA_PTR(r), ARR_DATA_PTR(a), n * sizeof(int32));
+    r = new_floatArrayType(ARR_NDIM(a), ARR_DIMS(a), x*n);
+	memcpy(ARR_DATA_PTR(r), ARR_DATA_PTR(a), n * sizeof(float4));
+
+    ARR_DIMS(r)[0] *= x;
+
 	return r;
 }
 
@@ -2153,45 +2156,63 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     // args 0 = state
     // args 1 = array of doubles
     //
-    ArrayType  *a, *b;
-    float *pa;
-    float *pb;
-    int num_current_elems, num_new_elems;
+    ArrayType  *a, *b, *old_a;
+    float4 *pa;
+    float4 *pb;
+    int num_current_elems, num_new_elems, num_elements;
+    unsigned long nbytes;
 
-    const int buffer_size = 700*1024*1024;
+    const int buffer_size = 60;
 
     b = PG_GETARG_ARRAYTYPE_P(1);
 
     if (AggCheckCallContext(fcinfo, NULL)) {
+        ereport(INFO, (errmsg("In Aggregate call context")));
         if (PG_ARGISNULL(0)) {
-            PG_RETURN_POINTER(copy_floatArrayType(b));
-            // Need to resize to be able to hold all images in 1 buffer
-            // b.resize(buffer_size)
+            ereport(INFO, (errmsg("calling new_floatArrayType")));
+//            a = new_floatArrayType(ARR_NDIM(b), ARR_DIMS(b), buffer_size);
+            ereport(INFO, (errmsg("calling copy_floatArrayType")));
+//            a = copy_floatArrayType(b, a);
+            a = copy_floatArrayType(b, 15);
+            ereport(INFO, (errmsg("returning a")));
+            PG_RETURN_POINTER(a);
         } else {
             a = PG_GETARG_ARRAYTYPE_P(0);
         }
     } else {
+        ereport(INFO, (errmsg("NOT in aggregate call context")));
         if (PG_ARGISNULL(0)) {
             ereport(ERROR, (errmsg("First operand must be non-null")));
         }
-        a = PG_GETARG_ARRAYTYPE_P_COPY(0);
+        old_a = PG_GETARG_ARRAYTYPE_P(0);
+        nbytes = VARSIZE(old_a);
+        a = palloc(nbytes + (buffer_size - ARRNELEMS(a))*sizeof(float4));
+        memcpy(a, old_a, nbytes);
+        SET_VARSIZE(a, nbytes + (buffer_size - ARRNELEMS(a))*sizeof(float4));
+        ARR_DIMS(a)[0] *= 15;
     }
 
     if (ARR_NDIM(a) != ARR_NDIM(b)) {
         ereport(ERROR, (errmsg("All arrays must have the same number of dimensions")));
     }
 
-    num_current_elems = ArrayGetNItems(ARR_NDIM(a), ARR_DIMS(a));
-    num_new_elems = ArrayGetNItems(ARR_NDIM(b), ARR_DIMS(b));
+    num_current_elems = ARRNELEMS(a);
+    num_new_elems = ARRNELEMS(b);
 
     if (num_current_elems + num_new_elems > buffer_size) {
         ereport(ERROR, (errmsg("Buffer overflow!")));
     }
 
-    pa = (float *) ARR_DATA_PTR(a);
-    pb = (float *) ARR_DATA_PTR(b);
+    pa = (float4 *) ARR_DATA_PTR(a);
+    pb = (float4 *) ARR_DATA_PTR(b);
 
-    memcpy(pa + num_current_elems, pb, num_new_elems * sizeof(float));
+    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
+    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
+    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
+    ereport(INFO, (errmsg("Calling final memcpy")));
+    num_elements = num_current_elems + num_new_elems;
+    memcpy(pa + num_current_elems, pb, num_new_elems * sizeof(float4));
 
+    ereport(INFO, (errmsg("Returning a")));
     PG_RETURN_POINTER(a);
 }
