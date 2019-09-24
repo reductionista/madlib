@@ -843,6 +843,13 @@ CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(REAL[]) (
    PREFUNC = array_cat
    );
 
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.oldagg_array_concat(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.oldagg_array_concat(REAL[]) (
+   SFUNC = array_cat,
+   STYPE = REAL[],
+   PREFUNC = array_cat
+   );
+
 CREATE FUNCTION MADLIB_SCHEMA.convert_array_to_bytea(var REAL[])
 RETURNS BYTEA
 AS

@@ -1,0 +1,270 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+ALLISTRUE	intarray/_int.h	79;"	d
+ARRISEMPTY	intarray/_int.h	26;"	d
+ARRNELEMS	intarray/_int.h	15;"	d
+ARRPTR	intarray/_int.h	14;"	d
+BITVEC	intarray/_int.h	/^typedef char BITVEC[SIGLEN];$/;"	t
+BITVECP	intarray/_int.h	/^typedef char *BITVECP;$/;"	t
+BooleanSearchStrategy	intarray/_int.h	119;"	d
+CALCGTSIZE	intarray/_int.h	84;"	d
+CHECKARRVALID	intarray/_int.h	18;"	d
+CHKVAL	intarray/_int_bool.c	/^} CHKVAL;$/;"	t	typeref:struct:__anon4	file:
+CLOSE	intarray/_int.h	150;"	d
+CLRBIT	intarray/_int.h	63;"	d
+COMPUTESIZE	intarray/_int.h	140;"	d
+DATA	intarray/Makefile	/^DATA = intarray--1.2.sql intarray--1.1--1.2.sql intarray--1.0--1.1.sql \\$/;"	m
+DatumGetQueryTypeP	intarray/_int.h	153;"	d
+DatumGetQueryTypePCopy	intarray/_int.h	154;"	d
+END	intarray/_int.h	145;"	d
+ERR	intarray/_int.h	146;"	d
+EXTENSION	intarray/Makefile	/^EXTENSION = intarray$/;"	m
+GETBIT	intarray/_int.h	65;"	d
+GETBITBYTE	intarray/_int.h	62;"	d
+GETBYTE	intarray/_int.h	61;"	d
+GETENTRY	intarray/_int_gist.c	13;"	d	file:
+GETENTRY	intarray/_intbig_gist.c	11;"	d	file:
+GETQUERY	intarray/_int.h	142;"	d
+GETSIGN	intarray/_int.h	86;"	d
+GISTTYPE	intarray/_int.h	/^} GISTTYPE;$/;"	t	typeref:struct:__anon7
+GTHDRSIZE	intarray/_int.h	83;"	d
+GinChkVal	intarray/_int_bool.c	/^} GinChkVal;$/;"	t	typeref:struct:__anon5	file:
+HASH	intarray/_int.h	67;"	d
+HASHVAL	intarray/_int.h	66;"	d
+HDRSIZEQT	intarray/_int.h	139;"	d
+INFIX	intarray/_int_bool.c	/^} INFIX;$/;"	t	typeref:struct:__anon6	file:
+ISALLTRUE	intarray/_int.h	81;"	d
+ITEM	intarray/_int.h	/^typedef struct ITEM$/;"	s
+ITEM	intarray/_int.h	/^} ITEM;$/;"	t	typeref:struct:ITEM
+LOOPBYTE	intarray/_int.h	57;"	d
+MAXNUMRANGE	intarray/_int.h	11;"	d
+MODULE_big	intarray/Makefile	/^MODULE_big = _int$/;"	m
+NODE	intarray/_int_bool.c	/^typedef struct NODE$/;"	s	file:
+NODE	intarray/_int_bool.c	/^} NODE;$/;"	t	typeref:struct:NODE	file:
+OBJS	intarray/Makefile	/^OBJS = _int_bool.o _int_gist.o _int_op.o _int_tool.o \\$/;"	m
+OPEN	intarray/_int.h	149;"	d
+OPR	intarray/_int.h	148;"	d
+PGFILEDESC	intarray/Makefile	/^PGFILEDESC = "intarray - functions and operators for arrays of integers"$/;"	m
+PGXS	intarray/Makefile	/^PGXS := $(shell $(PG_CONFIG) --pgxs)$/;"	m
+PG_CONFIG	intarray/Makefile	/^PG_CONFIG = pg_config$/;"	m
+PG_GETARG_QUERYTYPE_P	intarray/_int.h	155;"	d
+PG_GETARG_QUERYTYPE_P_COPY	intarray/_int.h	156;"	d
+PREPAREARR	intarray/_int.h	37;"	d
+QSORT	intarray/_int.h	168;"	d
+QUERYTYPE	intarray/_int.h	/^typedef struct QUERYTYPE$/;"	s
+QUERYTYPE	intarray/_int.h	/^} QUERYTYPE;$/;"	t	typeref:struct:QUERYTYPE
+QUERYTYPEMAXITEMS	intarray/_int.h	141;"	d
+REGRESS	intarray/Makefile	/^REGRESS = _int$/;"	m
+RESIZEBUF	intarray/_int_bool.c	557;"	d	file:
+SETBIT	intarray/_int.h	64;"	d
+SIGLEN	intarray/_int.h	51;"	d
+SIGLENBIT	intarray/_int.h	52;"	d
+SIGLENINT	intarray/_int.h	50;"	d
+SORT	intarray/_int.h	29;"	d
+SPLITCOST	intarray/_int_gist.c	/^} SPLITCOST;$/;"	t	typeref:struct:__anon1	file:
+SPLITCOST	intarray/_intbig_gist.c	/^} SPLITCOST;$/;"	t	typeref:struct:__anon2	file:
+STACKDEPTH	intarray/_int_bool.c	148;"	d	file:
+Usage	intarray/bench/bench.pl	/^Usage:$/;"	l
+VAL	intarray/_int.h	147;"	d
+WAITENDOPERAND	intarray/_int_bool.c	20;"	d	file:
+WAITOPERAND	intarray/_int_bool.c	19;"	d	file:
+WAITOPERATOR	intarray/_int_bool.c	21;"	d	file:
+WISH_F	intarray/_int.h	46;"	d
+WORKSTATE	intarray/_int_bool.c	/^} WORKSTATE;$/;"	t	typeref:struct:__anon3	file:
+___INT_H__	intarray/_int.h	5;"	d
+_int_contained	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_contained);$/;"	v
+_int_contained	intarray/_int_op.c	/^_int_contained(PG_FUNCTION_ARGS)$/;"	f
+_int_contained_joinsel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_contained_joinsel);$/;"	v
+_int_contained_joinsel	intarray/_int_selfuncs.c	/^_int_contained_joinsel(PG_FUNCTION_ARGS)$/;"	f
+_int_contained_sel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_contained_sel);$/;"	v
+_int_contained_sel	intarray/_int_selfuncs.c	/^_int_contained_sel(PG_FUNCTION_ARGS)$/;"	f
+_int_contains	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_contains);$/;"	v
+_int_contains	intarray/_int_op.c	/^_int_contains(PG_FUNCTION_ARGS)$/;"	f
+_int_contains_joinsel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_contains_joinsel);$/;"	v
+_int_contains_joinsel	intarray/_int_selfuncs.c	/^_int_contains_joinsel(PG_FUNCTION_ARGS)$/;"	f
+_int_contains_sel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_contains_sel);$/;"	v
+_int_contains_sel	intarray/_int_selfuncs.c	/^_int_contains_sel(PG_FUNCTION_ARGS)$/;"	f
+_int_different	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_different);$/;"	v
+_int_different	intarray/_int_op.c	/^_int_different(PG_FUNCTION_ARGS)$/;"	f
+_int_inter	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_inter);$/;"	v
+_int_inter	intarray/_int_op.c	/^_int_inter(PG_FUNCTION_ARGS)$/;"	f
+_int_matchsel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_matchsel);$/;"	v
+_int_matchsel	intarray/_int_selfuncs.c	/^_int_matchsel(PG_FUNCTION_ARGS)$/;"	f
+_int_matchsel	intarray/intarray--1.0--1.1.sql	/^CREATE FUNCTION _int_matchsel(internal, oid, internal, integer)$/;"	f
+_int_overlap	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_overlap);$/;"	v
+_int_overlap	intarray/_int_op.c	/^_int_overlap(PG_FUNCTION_ARGS)$/;"	f
+_int_overlap_joinsel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_overlap_joinsel);$/;"	v
+_int_overlap_joinsel	intarray/_int_selfuncs.c	/^_int_overlap_joinsel(PG_FUNCTION_ARGS)$/;"	f
+_int_overlap_sel	intarray/_int_selfuncs.c	/^PG_FUNCTION_INFO_V1(_int_overlap_sel);$/;"	v
+_int_overlap_sel	intarray/_int_selfuncs.c	/^_int_overlap_sel(PG_FUNCTION_ARGS)$/;"	f
+_int_same	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_same);$/;"	v
+_int_same	intarray/_int_op.c	/^_int_same(PG_FUNCTION_ARGS)$/;"	f
+_int_union	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(_int_union);$/;"	v
+_int_union	intarray/_int_op.c	/^_int_union(PG_FUNCTION_ARGS)$/;"	f
+_int_unique	intarray/_int_tool.c	/^_int_unique(ArrayType *r)$/;"	f
+_intbig_contains	intarray/_intbig_gist.c	/^_intbig_contains(GISTTYPE *a, ArrayType *b)$/;"	f	file:
+_intbig_in	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(_intbig_in);$/;"	v
+_intbig_in	intarray/_intbig_gist.c	/^_intbig_in(PG_FUNCTION_ARGS)$/;"	f
+_intbig_out	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(_intbig_out);$/;"	v
+_intbig_out	intarray/_intbig_gist.c	/^_intbig_out(PG_FUNCTION_ARGS)$/;"	f
+_intbig_overlap	intarray/_intbig_gist.c	/^_intbig_overlap(GISTTYPE *a, ArrayType *b)$/;"	f	file:
+arrb	intarray/_int_bool.c	/^	int32	   *arrb;$/;"	m	struct:__anon4	file:
+arre	intarray/_int_bool.c	/^	int32	   *arre;$/;"	m	struct:__anon4	file:
+boolop	intarray/_int_bool.c	/^PG_FUNCTION_INFO_V1(boolop);$/;"	v
+boolop	intarray/_int_bool.c	/^boolop(PG_FUNCTION_ARGS)$/;"	f
+bqarr_in	intarray/_int_bool.c	/^PG_FUNCTION_INFO_V1(bqarr_in);$/;"	v
+bqarr_in	intarray/_int_bool.c	/^bqarr_in(PG_FUNCTION_ARGS)$/;"	f
+bqarr_in	intarray/intarray--1.2.sql	/^CREATE FUNCTION bqarr_in(cstring)$/;"	f
+bqarr_out	intarray/_int_bool.c	/^PG_FUNCTION_INFO_V1(bqarr_out);$/;"	v
+bqarr_out	intarray/_int_bool.c	/^bqarr_out(PG_FUNCTION_ARGS)$/;"	f
+buf	intarray/_int_bool.c	/^	char	   *buf;$/;"	m	struct:__anon3	file:
+buf	intarray/_int_bool.c	/^	char	   *buf;$/;"	m	struct:__anon6	file:
+buflen	intarray/_int_bool.c	/^	int32		buflen;$/;"	m	struct:__anon6	file:
+checkcondition_arr	intarray/_int_bool.c	/^checkcondition_arr(void *checkval, ITEM *item)$/;"	f	file:
+checkcondition_bit	intarray/_int_bool.c	/^checkcondition_bit(void *checkval, ITEM *item)$/;"	f	file:
+checkcondition_gin	intarray/_int_bool.c	/^checkcondition_gin(void *checkval, ITEM *item)$/;"	f	file:
+compASC	intarray/_int_tool.c	/^compASC(const void *a, const void *b)$/;"	f
+compDESC	intarray/_int_tool.c	/^compDESC(const void *a, const void *b)$/;"	f
+compare_val_int4	intarray/_int_selfuncs.c	/^compare_val_int4(const void *a, const void *b)$/;"	f	file:
+comparecost	intarray/_int_gist.c	/^comparecost(const void *a, const void *b)$/;"	f	file:
+comparecost	intarray/_intbig_gist.c	/^comparecost(const void *a, const void *b)$/;"	f	file:
+contains_required_value	intarray/_int_bool.c	/^contains_required_value(ITEM *curitem)$/;"	f	file:
+copy_intArrayType	intarray/_int_tool.c	/^copy_intArrayType(ArrayType *a)$/;"	f
+copy_intArrayType	my_array_concat.cpp	/^copy_intArrayType(ArrayType *a)$/;"	f	namespace:madlib::modules::deep_learning
+copytable	intarray/bench/create_test.pl	/^sub copytable$/;"	s
+cost	intarray/_int_gist.c	/^	float		cost;$/;"	m	struct:__anon1	file:
+cost	intarray/_intbig_gist.c	/^	int32		cost;$/;"	m	struct:__anon2	file:
+count	intarray/_int_bool.c	/^	int32		count;$/;"	m	struct:__anon3	file:
+cur	intarray/_int_bool.c	/^	char	   *cur;$/;"	m	struct:__anon6	file:
+curpol	intarray/_int_bool.c	/^	ITEM	   *curpol;$/;"	m	struct:__anon6	file:
+data	intarray/_int.h	/^	char		data[FLEXIBLE_ARRAY_MEMBER];$/;"	m	struct:__anon7
+deep_learning	my_array_concat.cpp	/^namespace deep_learning {$/;"	n	namespace:madlib::modules	file:
+exec_sql	intarray/bench/bench.pl	/^sub exec_sql$/;"	s
+execconsistent	intarray/_int_bool.c	/^execconsistent(QUERYTYPE *query, ArrayType *array, bool calcnot)$/;"	f
+execute	intarray/_int_bool.c	/^execute(ITEM *curitem, void *checkval, bool calcnot,$/;"	f	file:
+findoprnd	intarray/_int_bool.c	/^findoprnd(ITEM *ptr, int32 *pos)$/;"	f	file:
+first	intarray/_int_bool.c	/^	ITEM	   *first;$/;"	m	struct:__anon5	file:
+flag	intarray/_int.h	/^	int32		flag;$/;"	m	struct:__anon7
+formarray	intarray/_int.h	/^typedef ArrayType *(*formarray) (ArrayType *, ArrayType *);$/;"	t
+formfloat	intarray/_int.h	/^typedef void (*formfloat) (ArrayType *, float *);$/;"	t
+g_int_compress	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_compress);$/;"	v
+g_int_compress	intarray/_int_gist.c	/^g_int_compress(PG_FUNCTION_ARGS)$/;"	f
+g_int_consistent	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_consistent);$/;"	v
+g_int_consistent	intarray/_int_gist.c	/^g_int_consistent(PG_FUNCTION_ARGS)$/;"	f
+g_int_decompress	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_decompress);$/;"	v
+g_int_decompress	intarray/_int_gist.c	/^g_int_decompress(PG_FUNCTION_ARGS)$/;"	f
+g_int_penalty	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_penalty);$/;"	v
+g_int_penalty	intarray/_int_gist.c	/^g_int_penalty(PG_FUNCTION_ARGS)$/;"	f
+g_int_picksplit	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_picksplit);$/;"	v
+g_int_picksplit	intarray/_int_gist.c	/^g_int_picksplit(PG_FUNCTION_ARGS)$/;"	f
+g_int_same	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_same);$/;"	v
+g_int_same	intarray/_int_gist.c	/^g_int_same(PG_FUNCTION_ARGS)$/;"	f
+g_int_union	intarray/_int_gist.c	/^PG_FUNCTION_INFO_V1(g_int_union);$/;"	v
+g_int_union	intarray/_int_gist.c	/^g_int_union(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_compress	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_compress);$/;"	v
+g_intbig_compress	intarray/_intbig_gist.c	/^g_intbig_compress(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_consistent	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_consistent);$/;"	v
+g_intbig_consistent	intarray/_intbig_gist.c	/^g_intbig_consistent(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_decompress	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_decompress);$/;"	v
+g_intbig_decompress	intarray/_intbig_gist.c	/^g_intbig_decompress(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_penalty	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_penalty);$/;"	v
+g_intbig_penalty	intarray/_intbig_gist.c	/^g_intbig_penalty(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_picksplit	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_picksplit);$/;"	v
+g_intbig_picksplit	intarray/_intbig_gist.c	/^g_intbig_picksplit(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_same	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_same);$/;"	v
+g_intbig_same	intarray/_intbig_gist.c	/^g_intbig_same(PG_FUNCTION_ARGS)$/;"	f
+g_intbig_union	intarray/_intbig_gist.c	/^PG_FUNCTION_INFO_V1(g_intbig_union);$/;"	v
+g_intbig_union	intarray/_intbig_gist.c	/^g_intbig_union(PG_FUNCTION_ARGS)$/;"	f
+gensign	intarray/_int_tool.c	/^gensign(BITVEC sign, int *a, int len)$/;"	f
+gettoken	intarray/_int_bool.c	/^gettoken(WORKSTATE *state, int32 *val)$/;"	f	file:
+gin_bool_consistent	intarray/_int_bool.c	/^gin_bool_consistent(QUERYTYPE *query, bool *check)$/;"	f
+ginint4_consistent	intarray/_int_gin.c	/^PG_FUNCTION_INFO_V1(ginint4_consistent);$/;"	v
+ginint4_consistent	intarray/_int_gin.c	/^ginint4_consistent(PG_FUNCTION_ARGS)$/;"	f
+ginint4_queryextract	intarray/_int_gin.c	/^PG_FUNCTION_INFO_V1(ginint4_queryextract);$/;"	v
+ginint4_queryextract	intarray/_int_gin.c	/^ginint4_queryextract(PG_FUNCTION_ARGS)$/;"	f
+hemdist	intarray/_intbig_gist.c	/^hemdist(GISTTYPE *a, GISTTYPE *b)$/;"	f	file:
+hemdistsign	intarray/_intbig_gist.c	/^hemdistsign(BITVECP a, BITVECP b)$/;"	f	file:
+icount	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(icount);$/;"	v
+icount	intarray/_int_op.c	/^icount(PG_FUNCTION_ARGS)$/;"	f
+idx	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(idx);$/;"	v
+idx	intarray/_int_op.c	/^idx(PG_FUNCTION_ARGS)$/;"	f
+infix	intarray/_int_bool.c	/^infix(INFIX *in, bool first)$/;"	f	file:
+inner_int_contains	intarray/_int_tool.c	/^inner_int_contains(ArrayType *a, ArrayType *b)$/;"	f
+inner_int_inter	intarray/_int_tool.c	/^inner_int_inter(ArrayType *a, ArrayType *b)$/;"	f
+inner_int_overlap	intarray/_int_tool.c	/^inner_int_overlap(ArrayType *a, ArrayType *b)$/;"	f
+inner_int_union	intarray/_int_tool.c	/^inner_int_union(ArrayType *a, ArrayType *b)$/;"	f
+int_query_opr_selec	intarray/_int_selfuncs.c	/^int_query_opr_selec(ITEM *item, Datum *mcelems, float4 *mcefreqs,$/;"	f	file:
+int_to_intset	intarray/_int_tool.c	/^int_to_intset(int32 n)$/;"	f
+intarray_add_elem	intarray/_int_tool.c	/^intarray_add_elem(ArrayType *a, int32 elem)$/;"	f
+intarray_concat_arrays	intarray/_int_tool.c	/^intarray_concat_arrays(ArrayType *a, ArrayType *b)$/;"	f
+intarray_del_elem	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intarray_del_elem);$/;"	v
+intarray_del_elem	intarray/_int_op.c	/^intarray_del_elem(PG_FUNCTION_ARGS)$/;"	f
+intarray_match_first	intarray/_int_tool.c	/^intarray_match_first(ArrayType *a, int32 elem)$/;"	f
+intarray_push_array	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intarray_push_array);$/;"	v
+intarray_push_array	intarray/_int_op.c	/^intarray_push_array(PG_FUNCTION_ARGS)$/;"	f
+intarray_push_elem	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intarray_push_elem);$/;"	v
+intarray_push_elem	intarray/_int_op.c	/^intarray_push_elem(PG_FUNCTION_ARGS)$/;"	f
+internal_size	intarray/_int_tool.c	/^internal_size(int *a, int len)$/;"	f
+intset	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intset);$/;"	v
+intset	intarray/_int_op.c	/^intset(PG_FUNCTION_ARGS)$/;"	f
+intset_subtract	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intset_subtract);$/;"	v
+intset_subtract	intarray/_int_op.c	/^intset_subtract(PG_FUNCTION_ARGS)$/;"	f
+intset_union_elem	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(intset_union_elem);$/;"	v
+intset_union_elem	intarray/_int_op.c	/^intset_union_elem(PG_FUNCTION_ARGS)$/;"	f
+isort	intarray/_int_tool.c	/^isort(int32 *a, int len)$/;"	f
+isort_cmp	intarray/_int_tool.c	/^isort_cmp(const void *a, const void *b, void *arg)$/;"	f	file:
+items	intarray/_int.h	/^	ITEM		items[FLEXIBLE_ARRAY_MEMBER];$/;"	m	struct:QUERYTYPE
+left	intarray/_int.h	/^	int16		left;$/;"	m	struct:ITEM
+madlib	my_array_concat.cpp	/^namespace madlib {$/;"	n	file:
+makepol	intarray/_int_bool.c	/^makepol(WORKSTATE *state)$/;"	f	file:
+mapped_check	intarray/_int_bool.c	/^	bool	   *mapped_check;$/;"	m	struct:__anon5	file:
+modules	my_array_concat.cpp	/^namespace modules {$/;"	n	namespace:madlib	file:
+my_array_concat_transition	my_array_concat.cpp	/^Datum my_array_concat_transition(PG_FUNCTION_ARGS)$/;"	f	namespace:madlib::modules::deep_learning
+new_intArrayType	intarray/_int_tool.c	/^new_intArrayType(int num)$/;"	f
+new_intArrayType	my_array_concat.cpp	/^new_intArrayType(int ndims, int num)$/;"	f	namespace:madlib::modules::deep_learning
+next	intarray/_int_bool.c	/^	struct NODE *next;$/;"	m	struct:NODE	typeref:struct:NODE::NODE	file:
+num	intarray/_int_bool.c	/^	int32		num;$/;"	m	struct:__anon3	file:
+number_of_ones	intarray/_intbig_gist.c	/^static const uint8 number_of_ones[256] = {$/;"	v	file:
+pos	intarray/_int_gist.c	/^	OffsetNumber pos;$/;"	m	struct:__anon1	file:
+pos	intarray/_intbig_gist.c	/^	OffsetNumber pos;$/;"	m	struct:__anon2	file:
+pushquery	intarray/_int_bool.c	/^pushquery(WORKSTATE *state, int32 type, int32 val)$/;"	f	file:
+query_has_required_values	intarray/_int_bool.c	/^query_has_required_values(QUERYTYPE *query)$/;"	f
+querytree	intarray/_int_bool.c	/^PG_FUNCTION_INFO_V1(querytree);$/;"	v
+querytree	intarray/_int_bool.c	/^querytree(PG_FUNCTION_ARGS)$/;"	f
+rboolop	intarray/_int_bool.c	/^PG_FUNCTION_INFO_V1(rboolop);$/;"	v
+rboolop	intarray/_int_bool.c	/^rboolop(PG_FUNCTION_ARGS)$/;"	f
+resize_intArrayType	intarray/_int_tool.c	/^resize_intArrayType(ArrayType *a, int num)$/;"	f
+rt__int_size	intarray/_int_tool.c	/^rt__int_size(ArrayType *a, float *size)$/;"	f
+signconsistent	intarray/_int_bool.c	/^signconsistent(QUERYTYPE *query, BITVEC sign, bool calcnot)$/;"	f
+size	intarray/_int.h	/^	int32		size;			\/* number of ITEMs *\/$/;"	m	struct:QUERYTYPE
+sizebitvec	intarray/_intbig_gist.c	/^sizebitvec(BITVECP sign)$/;"	f	file:
+sort	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(sort);$/;"	v
+sort	intarray/_int_op.c	/^sort(PG_FUNCTION_ARGS)$/;"	f
+sort_asc	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(sort_asc);$/;"	v
+sort_asc	intarray/_int_op.c	/^sort_asc(PG_FUNCTION_ARGS)$/;"	f
+sort_desc	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(sort_desc);$/;"	v
+sort_desc	intarray/_int_op.c	/^sort_desc(PG_FUNCTION_ARGS)$/;"	f
+state	intarray/_int_bool.c	/^	int32		state;$/;"	m	struct:__anon3	file:
+str	intarray/_int_bool.c	/^	NODE	   *str;$/;"	m	struct:__anon3	file:
+subarray	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(subarray);$/;"	v
+subarray	intarray/_int_op.c	/^subarray(PG_FUNCTION_ARGS)$/;"	f
+subdir	intarray/Makefile	/^subdir = contrib\/intarray$/;"	m
+test__int	intarray/sql/_int.sql	/^CREATE TABLE test__int( a int[] );$/;"	t
+test__int.a	intarray/sql/_int.sql	/^CREATE TABLE test__int( a int[] );$/;"	F
+test__int.text_idx	intarray/sql/_int.sql	/^CREATE INDEX text_idx on test__int using gin ( a gin__int_ops );$/;"	i
+test__int.text_idx	intarray/sql/_int.sql	/^CREATE INDEX text_idx on test__int using gist ( a gist__int_ops );$/;"	i
+test__int.text_idx	intarray/sql/_int.sql	/^CREATE INDEX text_idx on test__int using gist ( a gist__intbig_ops );$/;"	i
+top_builddir	intarray/Makefile	/^top_builddir = ..\/..$/;"	m
+type	intarray/_int.h	/^	int16		type;$/;"	m	struct:ITEM
+type	intarray/_int_bool.c	/^	int32		type;$/;"	m	struct:NODE	file:
+unionkey	intarray/_intbig_gist.c	/^unionkey(BITVECP sbase, GISTTYPE *add)$/;"	f	file:
+uniq	intarray/_int_op.c	/^PG_FUNCTION_INFO_V1(uniq);$/;"	v
+uniq	intarray/_int_op.c	/^uniq(PG_FUNCTION_ARGS)$/;"	f
+val	intarray/_int.h	/^	int32		val;$/;"	m	struct:ITEM
+val	intarray/_int_bool.c	/^	int32		val;$/;"	m	struct:NODE	file:
+vl_len_	intarray/_int.h	/^	int32		vl_len_;		\/* varlena header (do not touch directly!) *\/$/;"	m	struct:QUERYTYPE
+vl_len_	intarray/_int.h	/^	int32		vl_len_;		\/* varlena header (do not touch directly!) *\/$/;"	m	struct:__anon7
