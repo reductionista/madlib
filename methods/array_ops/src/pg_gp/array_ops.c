@@ -2116,7 +2116,7 @@ ArrayType *
 new_floatArrayType(int ndims, int *shape, int num)
 {
 	ArrayType  *r;
-	unsigned long nbytes = ARR_OVERHEAD_NONULLS(1) + sizeof(float4) * num;
+	unsigned long nbytes = ARR_OVERHEAD_NONULLS(ndims) + sizeof(float4) * num;
 
 	r = (ArrayType *) palloc0(nbytes);
 
@@ -2125,10 +2125,10 @@ new_floatArrayType(int ndims, int *shape, int num)
 	r->dataoffset = 0;			/* marker for no null bitmap */
     for (int i; i < ndims; i++) {
         ARR_DIMS(r)[i] = shape[i];
+	    ARR_LBOUND(r)[i] = 1;
     }
 
 	ARR_ELEMTYPE(r) = FLOAT4OID;
-	ARR_LBOUND(r)[0] = 1;
 
 	return r;
 }
@@ -2154,65 +2154,64 @@ PG_FUNCTION_INFO_V1(my_array_concat_transition);
 Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 {
     // args 0 = state
-    // args 1 = array of doubles
+    // args 1 = array of float4's
     //
-    ArrayType  *a, *b, *old_a;
-    float4 *pa;
-    float4 *pb;
+    ArrayType  *state, *b;
+    float4 *b_data;
+    float4 *state_data;
     int num_current_elems, num_new_elems, num_elements;
     unsigned long nbytes;
 
-    const int buffer_size = 60;
+    const int buffer_size = 120;
+    ereport(INFO, (errmsg("Before b = arg1")));
 
     b = PG_GETARG_ARRAYTYPE_P(1);
 
+    ereport(INFO, (errmsg("After b = arg1")));
+
     if (AggCheckCallContext(fcinfo, NULL)) {
-        ereport(INFO, (errmsg("In Aggregate call context")));
         if (PG_ARGISNULL(0)) {
-            ereport(INFO, (errmsg("calling new_floatArrayType")));
-//            a = new_floatArrayType(ARR_NDIM(b), ARR_DIMS(b), buffer_size);
-            ereport(INFO, (errmsg("calling copy_floatArrayType")));
-//            a = copy_floatArrayType(b, a);
-            a = copy_floatArrayType(b, 15);
-            ereport(INFO, (errmsg("returning a")));
-            PG_RETURN_POINTER(a);
+            state = copy_floatArrayType(b, 15);
+            ereport(INFO, (errmsg("read first row")));
+            PG_RETURN_POINTER(state);
         } else {
-            a = PG_GETARG_ARRAYTYPE_P(0);
+            state = PG_GETARG_ARRAYTYPE_P(0);
         }
     } else {
-        ereport(INFO, (errmsg("NOT in aggregate call context")));
         if (PG_ARGISNULL(0)) {
             ereport(ERROR, (errmsg("First operand must be non-null")));
         }
-        old_a = PG_GETARG_ARRAYTYPE_P(0);
-        nbytes = VARSIZE(old_a);
-        a = palloc(nbytes + (buffer_size - ARRNELEMS(a))*sizeof(float4));
-        memcpy(a, old_a, nbytes);
-        SET_VARSIZE(a, nbytes + (buffer_size - ARRNELEMS(a))*sizeof(float4));
-        ARR_DIMS(a)[0] *= 15;
+        ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
+        num_new_elems = ARRNELEMS(b);
+        nbytes = VARSIZE(a);
+        state = palloc(nbytes + num_new_elems*(sizeof(float4)));
+        memcpy(state, a, nbytes);
+        SET_VARSIZE(state, nbytes + num_new_elems*(sizeof(float4)));
     }
 
-    if (ARR_NDIM(a) != ARR_NDIM(b)) {
+    if (ARR_NDIM(state) != ARR_NDIM(b)) {
         ereport(ERROR, (errmsg("All arrays must have the same number of dimensions")));
     }
 
-    num_current_elems = ARRNELEMS(a);
+    num_current_elems = ARRNELEMS(state);
     num_new_elems = ARRNELEMS(b);
 
+    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
+    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
+//    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
+ 
     if (num_current_elems + num_new_elems > buffer_size) {
         ereport(ERROR, (errmsg("Buffer overflow!")));
     }
 
-    pa = (float4 *) ARR_DATA_PTR(a);
-    pb = (float4 *) ARR_DATA_PTR(b);
+    state_data = (float4 *) ARR_DATA_PTR(state);
+    b_data = (float4 *) ARR_DATA_PTR(b);
 
-    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
-    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
-    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
-    ereport(INFO, (errmsg("Calling final memcpy")));
     num_elements = num_current_elems + num_new_elems;
-    memcpy(pa + num_current_elems, pb, num_new_elems * sizeof(float4));
+    memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
-    ereport(INFO, (errmsg("Returning a")));
-    PG_RETURN_POINTER(a);
+    ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
+
+    ereport(INFO, (errmsg("Returning state")));
+    PG_RETURN_POINTER(state);
 }
