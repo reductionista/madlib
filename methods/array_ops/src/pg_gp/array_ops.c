@@ -2143,7 +2143,7 @@ copy_floatArrayType(ArrayType *a, int x)
     r = new_floatArrayType(ARR_NDIM(a), ARR_DIMS(a), x*n);
 	memcpy(ARR_DATA_PTR(r), ARR_DATA_PTR(a), n * sizeof(float4));
 
-    ARR_DIMS(r)[0] *= x;
+//    ARR_DIMS(r)[0] *= x;
 
 	return r;
 }
@@ -2161,17 +2161,15 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     float4 *state_data;
     int num_current_elems, num_new_elems, num_elements;
     unsigned long nbytes;
+    int row=0;
 
-    const int buffer_size = 120;
-    ereport(INFO, (errmsg("Before b = arg1")));
+    const int buffer_size = 1557504;
 
     b = PG_GETARG_ARRAYTYPE_P(1);
 
-    ereport(INFO, (errmsg("After b = arg1")));
-
     if (AggCheckCallContext(fcinfo, NULL)) {
         if (PG_ARGISNULL(0)) {
-            state = copy_floatArrayType(b, 15);
+            state = copy_floatArrayType(b, 507);
             ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
@@ -2210,8 +2208,9 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     num_elements = num_current_elems + num_new_elems;
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
+
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-    ereport(INFO, (errmsg("Returning state")));
+//    ereport(INFO, (errmsg("Returning state")));
     PG_RETURN_POINTER(state);
 }
