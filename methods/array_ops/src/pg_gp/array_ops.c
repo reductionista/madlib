@@ -2161,16 +2161,18 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     float4 *state_data;
     int num_current_elems, num_new_elems, num_elements;
     unsigned long nbytes;
-    int row=0;
+    int max_rows;
 
-    const int buffer_size = 1557504;
 
     b = PG_GETARG_ARRAYTYPE_P(1);
+    max_rows = PG_GETARG_INT32(2);
+    const int buffer_size = max_rows*3072;
 
     if (AggCheckCallContext(fcinfo, NULL)) {
+
         if (PG_ARGISNULL(0)) {
-            state = copy_floatArrayType(b, 507);
-            ereport(INFO, (errmsg("read first row")));
+            state = copy_floatArrayType(b, max_rows);
+//            ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
             state = PG_GETARG_ARRAYTYPE_P(0);
@@ -2194,12 +2196,12 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     num_current_elems = ARRNELEMS(state);
     num_new_elems = ARRNELEMS(b);
 
-    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
-    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
+//    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
+//    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
 //    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
  
     if (num_current_elems + num_new_elems > buffer_size) {
-        ereport(ERROR, (errmsg("Buffer overflow!")));
+        ereport(ERROR, (errmsg("Buffer overflow!  %d + %d  > %d", num_current_elems, num_new_elems, buffer_size)));
     }
 
     state_data = (float4 *) ARR_DATA_PTR(state);
