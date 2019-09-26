@@ -251,9 +251,9 @@ class InputDataPreprocessorDL(object):
             FROM
             (
                 SELECT
-                    {self.schema_madlib}.agg_array_concat(
+                    {self.schema_madlib}.real_agg_array_concat(
                         ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.agg_array_concat(
+                    {self.schema_madlib}.real_agg_array_concat(
                         ARRAY[{norm_tbl}.y]) AS {y},
                     ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id,
                     count(*) AS count

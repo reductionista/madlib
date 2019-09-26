@@ -837,22 +837,22 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
 LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(REAL[], INTEGER);
-CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(REAL[], INTEGER) (
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER);
+CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
    PREFUNC = array_cat
    );
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.oldagg_array_concat(REAL[]);
-CREATE AGGREGATE MADLIB_SCHEMA.oldagg_array_concat(REAL[]) (
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.real_agg_array_concat(REAL[]) (
    SFUNC = array_cat,
    STYPE = REAL[],
    PREFUNC = array_cat
    );
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.old2agg_array_concat(REAL[]);
-CREATE AGGREGATE MADLIB_SCHEMA.old2agg_array_concat(anyarray) (
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.anyarray_agg_array_concat(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.anyarray_agg_array_concat(anyarray) (
    SFUNC = array_cat,
    STYPE = anyarray,
    PREFUNC = array_cat
