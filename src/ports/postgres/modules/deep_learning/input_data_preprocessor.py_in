@@ -240,6 +240,8 @@ class InputDataPreprocessorDL(object):
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
 
+            plpy.execute('ANALYZE {norm_tbl}'.format(**locals()))
+
         sql = """
             CREATE TABLE {self.output_table} AS
             SELECT {dist_key_comma}
