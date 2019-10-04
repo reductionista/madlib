@@ -17,7 +17,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-
 """
 @file input_data_preprocessor.py_in
 
@@ -159,6 +158,19 @@ class InputDataPreprocessorDL(object):
             shape = parse_shape(shape)
         return shape
 
+    def save_and_set_autostats_mode_in_functions(self):
+        save_query = "SHOW gp_autostats_mode_in_functions"
+        res = plpy.execute(save_query)
+        self.autostats_mode = res[0]['gp_autostats_mode_in_functions']
+        plpy.info("Saving setting: gp_autostats_mode_in_functions='{}'".format(self.autostats_mode))
+
+        set_query = "SET gp_autostats_mode_in_functions='ON_NO_STATS'"
+        plpy.execute(set_query)
+
+    def restore_autostats_mode_in_functions(self):
+        plpy.info("Restoring setting gp_autostats_mode_in_functions='{}'".format(self.autostats_mode))
+        plpy.execute("SET gp_autostats_mode_in_functions = '{}'".format(self.autostats_mode))
+
     def input_preprocessor_dl(self, order_by_random=True):
         """
             Creates the output and summary table that does the following
@@ -181,6 +193,8 @@ class InputDataPreprocessorDL(object):
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
         order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+        self.save_and_set_autostats_mode_in_functions() # stats needed for HashAgg plan later
+
         scalar_mult_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {self.schema_madlib}.array_scalar_mult(
@@ -190,7 +204,10 @@ class InputDataPreprocessorDL(object):
                 row_number() over() AS row_id
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        plpy.execute(scalar_mult_sql)
+        try:
+            plpy.execute(scalar_mult_sql)
+        finally:
+            self.restore_autostats_mode_in_functions()
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -213,7 +230,6 @@ class InputDataPreprocessorDL(object):
             dist_key_comma = ''
 
         else:
-
             dist_key = DISTRIBUTION_KEY_COLNAME
             # Create large temp table such that there is atleast 1 row on each segment
             # Using 999999 would distribute data(atleast 1 row on each segment) for

@@ -814,11 +814,11 @@ $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(anyarray);
-CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(anyarray) (
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(REAL[]) (
    SFUNC = array_cat,
    PREFUNC = array_cat,
-   STYPE = anyarray
+   STYPE = REAL[]
 
    );
 
