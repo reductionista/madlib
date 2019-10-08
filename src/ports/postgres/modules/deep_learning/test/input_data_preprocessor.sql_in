@@ -534,3 +534,31 @@ select assert(trap_error($TRAP$validation_preprocessor_dl(
   'data_preprocessor_input_batch',
   1);$TRAP$) = 1,
     'validation class values should be a subset of training data class values.');
+
+-- Test distributing data on some segments but not others (asymmetric)
+
+DROP TABLE IF EXISTS data_preprocessor_output, data_preprocessor_output_summary;
+SELECT training_preprocessor_dl(
+    'data_preprocessor_input',
+    'data_preprocessor_output',
+    'y',
+    'x',
+    NULL,
+    NULL,
+    ...,
+    ARRAY[1]       -- segments_per_host = [1]  (distribute on only 1 segment)
+SELECT assert()
+
+SELECT training_preprocessor_dl(
+    'data_preprocessor_input',
+    'data_preprocessor_output',
+    'y',
+    'x',
+    NULL,
+    NULL,
+    ...,
+    ARRAY[1]       -- segments_per_host = [1]  (distribute on 2 segments)
+SELECT assert()
+
+-- How many segments can we test?  Not sure how many we have in the docker
+--   image concourse uses

@@ -242,16 +242,23 @@ class InputDataPreprocessorDL(object):
             """.format(**locals())
             plpy.execute(query)
 
-            # Create temp table to get unique distribution key values for each segment
+            segments_to_use = (2,5,6,9)
+
+            # Create temp table to get unique distribution key values for each
+            #  segment.  If all segments are being used, id will correspond to
+            #  gp_segment_id.  Otherwise, it is a logical segment id that just
+            #  numbers the rows, starting with the first segment being used and
+            #  ending with the last.
             query = """
-                    CREATE TEMP TABLE {dist_key_tbl} AS
-                    SELECT gp_segment_id AS id, min({dist_key}) AS {dist_key}
-                    FROM {series_tbl}
-                    GROUP BY gp_segment_id
+            CREATE TEMP TABLE {dist_key_tbl} AS SELECT row_number() over() AS id,
+               min(__dist_key__) AS __dist_key__ FROM {series_tbl}
+                   WHERE gp_segment_id in {segments_to_use} ORDER BY gp_segment_id
+                           GROUP BY gp_segment_id DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
             plpy.execute(query)
 
-            num_segments = get_seg_number()
+#            num_segments = get_seg_number()
+            num_segments = len(segments_to_use)
             join_clause = 'JOIN {dist_key_tbl} ON (b.buffer_id%{num_segments})= {dist_key_tbl}.id'.format(**locals())
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
