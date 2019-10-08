@@ -252,8 +252,9 @@ class InputDataPreprocessorDL(object):
             query = """
             CREATE TEMP TABLE {dist_key_tbl} AS SELECT row_number() over() AS id,
                min(__dist_key__) AS __dist_key__ FROM {series_tbl}
-                   WHERE gp_segment_id in {segments_to_use} ORDER BY gp_segment_id
-                           GROUP BY gp_segment_id DISTRIBUTED BY (__dist_key__);
+                   WHERE gp_segment_id in {segments_to_use} 
+                       GROUP BY gp_segment_id ORDER BY gp_segment_id
+                           DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
             plpy.execute(query)
 
