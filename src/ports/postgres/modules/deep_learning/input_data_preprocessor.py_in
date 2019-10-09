@@ -165,7 +165,8 @@ class InputDataPreprocessorDL(object):
         plpy.info("Saving setting: gp_autostats_mode_in_functions='{}'".format(self.autostats_mode))
 
         set_query = "SET gp_autostats_mode_in_functions='ON_NO_STATS'"
-        plpy.execute(set_query)
+# commenting out for now, causes VMEM limit problem
+#        plpy.execute(set_query)
 
     def restore_autostats_mode_in_functions(self):
         plpy.info("Restoring setting gp_autostats_mode_in_functions='{}'".format(self.autostats_mode))
@@ -250,7 +251,7 @@ class InputDataPreprocessorDL(object):
             #  numbers the rows, starting with the first segment being used and
             #  ending with the last.
             query = """
-            CREATE TEMP TABLE {dist_key_tbl} AS SELECT row_number() over() AS id,
+            CREATE TEMP TABLE {dist_key_tbl} AS SELECT (row_number() over() - 1) AS id,
                min(__dist_key__) AS __dist_key__ FROM {series_tbl}
                    WHERE gp_segment_id in {segments_to_use} 
                        GROUP BY gp_segment_id ORDER BY gp_segment_id
