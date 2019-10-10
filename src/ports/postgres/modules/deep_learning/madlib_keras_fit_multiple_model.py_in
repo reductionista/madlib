@@ -168,17 +168,14 @@ class FitMultipleModel():
             seg_ids = self.seg_ids_valid
             images_per_seg = self.images_per_seg_valid
         for mst in self.msts:
-            state = query_weights(self.model_output_table, self.model_weights_col,
+            weights = query_weights(self.model_output_table, self.model_weights_col,
                 self.mst_key_col, mst[self.mst_key_col])
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
-            serialized_weights = \
-                madlib_keras_serializer.get_serialized_1d_weights_from_state(
-                    state)
             metric_eval_time, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
                 model_arch,
-                serialized_weights,
+                weights,
                 self.gpus_per_host,
                 self.segments_per_host,
                 seg_ids,
@@ -228,6 +225,7 @@ class FitMultipleModel():
             plpy.execute(mst_insert_query)
 
     def create_model_output_table(self):
+
         output_table_create_query = """
                                     CREATE TABLE {self.model_output_table}
                                     ({self.mst_key_col} INTEGER PRIMARY KEY,
@@ -267,9 +265,12 @@ class FitMultipleModel():
                                                      )
             model = model_from_json(model_arch)
 
-            serialized_state = \
-                madlib_keras_serializer.serialize_state_with_nd_weights(
-                    0, model.get_weights())
+            serialized_state = madlib_keras_serializer.serialize_nd_weights(model.get_weights())
+            # serialized_state = \
+            #     madlib_keras_serializer.serialize_state_with_nd_weights(
+            #         0, model.get_weights())
+
+
             # serialized_weights = madlib_keras_serializer.serialize_nd_weights(
             #     model.get_weights())
             model_size = sys.getsizeof(serialized_weights) / 1024.0
@@ -289,7 +290,7 @@ class FitMultipleModel():
             output_table_insert_query_prepared = plpy.prepare(
                 output_table_insert_query, ["bytea", "json"])
             plpy.execute(output_table_insert_query_prepared, [
-                         serialized_state, json.dumps(model_arch)])
+                         serialized_state, model_arch])
             info_table_insert_query = """
                     INSERT INTO {self.model_info_table}({self.mst_key_col},
                                 {self.model_id_col}, {self.compile_params_col},
