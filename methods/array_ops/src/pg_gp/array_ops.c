@@ -2117,13 +2117,16 @@ new_floatArrayType(int ndims, int *shape, int num)
 {
 	ArrayType  *r;
 	unsigned long nbytes = ARR_OVERHEAD_NONULLS(ndims) + sizeof(float4) * num;
+//        ereport(INFO, (errmsg("nbytes = %lu", nbytes )));
 
 	r = (ArrayType *) palloc0(nbytes);
 
 	SET_VARSIZE(r, nbytes);
 	ARR_NDIM(r) = ndims;
+//    ereport(INFO, (errmsg("ndims = %d", ndims )));
 	r->dataoffset = 0;			/* marker for no null bitmap */
-    for (int i; i < ndims; i++) {
+    for (int i=0; i < ndims; i++) {
+//        ereport(INFO, (errmsg("ARR_DIMS[%d] = %d", i, shape[i])));
         ARR_DIMS(r)[i] = shape[i];
 	    ARR_LBOUND(r)[i] = 1;
     }
@@ -2146,6 +2149,14 @@ copy_floatArrayType(ArrayType *a, int x)
 //    ARR_DIMS(r)[0] *= x;
 
 	return r;
+}
+
+void *safe_repalloc(void *old_ptr, unsigned long old_size, unsigned long new_size)
+{
+    void * new_ptr = palloc(new_size);
+    memcpy(new_ptr, old_ptr, old_size);
+    pfree(old_ptr);
+    return new_ptr;
 }
 
 // ----------------------------------------------------------------------
@@ -2194,7 +2205,6 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     }
 
     num_current_elems = ARRNELEMS(state);
-    num_new_elems = ARRNELEMS(b);
 
 //    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
 //    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
@@ -2210,9 +2220,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     num_elements = num_current_elems + num_new_elems;
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
+    ereport(INFO, (errmsg("state dims = [%d, %d, %d]", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2])));
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-//    ereport(INFO, (errmsg("Returning state")));
+    ereport(INFO, (errmsg("Returning state")));
     PG_RETURN_POINTER(state);
 }
