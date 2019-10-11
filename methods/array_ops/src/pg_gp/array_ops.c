@@ -2166,29 +2166,53 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 {
     // args 0 = state
     // args 1 = array of float4's
-    //
-    ArrayType  *state, *b;
+    // args 2 = max rows on this segment (okay if larger, just can't be smaller)
+    ArrayType  *state, *old_state;
     float4 *b_data;
     float4 *state_data;
     int num_current_elems, num_new_elems, num_elements;
     unsigned long nbytes;
-    int max_rows;
+    ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
+    int max_rows = PG_GETARG_INT32(2);
 
+    int buffer_size=0;
 
-    b = PG_GETARG_ARRAYTYPE_P(1);
-    max_rows = PG_GETARG_INT32(2);
-    const int buffer_size = max_rows*3072;
+    ereport(INFO, (errmsg("checking memory context...")));
 
     if (AggCheckCallContext(fcinfo, NULL)) {
-
+        ereport(INFO, (errmsg("in agg context, PG_ARGISNULL(0) = %d", PG_ARGISNULL(0))));
         if (PG_ARGISNULL(0)) {
-            state = copy_floatArrayType(b, max_rows);
-//            ereport(INFO, (errmsg("read first row")));
+            int *z = (int *)0;  // crash... do we get here?
+            num_new_elems = *z;
+            num_new_elems = ARRNELEMS(b);
+            buffer_size = max_rows * num_new_elems;
+            ereport(INFO, (errmsg("reading first row")));
+            state = copy_floatArrayType(b, 1000);
+            ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
+            num_new_elems = ARRNELEMS(b);
+            buffer_size = max_rows * num_new_elems;
             state = PG_GETARG_ARRAYTYPE_P(0);
-        }
+            nbytes = VARSIZE(state);
+
+            ereport(INFO, (errmsg("nbytes=%lu, num_new_elems=%d", nbytes, num_new_elems)));
+            old_state = state;
+//            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
+//            state = safe_repalloc(state, nbytes, nbytes + num_new_elems*(sizeof(float4)));
+            if (state == NULL) {
+                ereport(ERROR, (errmsg("repalloc returned NULL pointer!")));
+            } else if (state == old_state) {
+                ereport(INFO, (errmsg("repalloc returned same pointer")));
+            } else {
+                ereport(INFO, (errmsg("repalloc returned new pointer")));
+            }
+            SET_VARSIZE(state, nbytes + num_new_elems*(sizeof(float4)));
+         }
     } else {
+        num_new_elems = ARRNELEMS(b);
+        buffer_size = max_rows * num_new_elems;
+        ereport(INFO, (errmsg("non-agg context!")));
         if (PG_ARGISNULL(0)) {
             ereport(ERROR, (errmsg("First operand must be non-null")));
         }
