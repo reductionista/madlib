@@ -2182,7 +2182,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     if (AggCheckCallContext(fcinfo, NULL)) {
         ereport(INFO, (errmsg("in agg context, PG_ARGISNULL(0) = %d", PG_ARGISNULL(0))));
         if (PG_ARGISNULL(0)) {
-            int *z = (int *)0;  // crash... do we get here?
+            volatile int *z = (int *)0;  // crash... do we get here?
             num_new_elems = *z;
             num_new_elems = ARRNELEMS(b);
             buffer_size = max_rows * num_new_elems;
