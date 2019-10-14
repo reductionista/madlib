@@ -2151,12 +2151,28 @@ copy_floatArrayType(ArrayType *a, int x)
 	return r;
 }
 
-void *safe_repalloc(void *old_ptr, unsigned long old_size, unsigned long new_size)
+ArrayType *expand_if_needed(ArrayType *a)
 {
-    void * new_ptr = palloc(new_size);
-    memcpy(new_ptr, old_ptr, old_size);
-    pfree(old_ptr);
-    return new_ptr;
+    unsigned long data_size, current_size, new_size;
+    unsigned long ndims, current_space, new_space;
+    ArrayType *r;
+
+    data_size = sizeof(float4) * ARRNELEMS(a);
+    ndims = ARR_NDIM(a);
+    current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
+    current_space = VARSIZE(a);
+    ereport(INFO, (errmsg("ndims = %lu", ndims)));
+
+    if (current_size + data_size > current_space) {
+        new_space = current_space + data_size;  // If already half full, double
+                                               // size of array allocated
+        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
+        r = palloc(new_space);
+        SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
+    }
+    memcpy(r, a, current_size);
+
+    return r;
 }
 
 // ----------------------------------------------------------------------
@@ -2170,44 +2186,41 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     ArrayType  *state, *old_state;
     float4 *b_data;
     float4 *state_data;
-    int num_current_elems, num_new_elems, num_elements;
-    unsigned long nbytes;
+    unsigned long num_current_elems, num_new_elems, num_elements;
+    unsigned long current_bytes, new_bytes;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
-    int max_rows = PG_GETARG_INT32(2);
+    unsigned long  max_rows = PG_GETARG_INT32(2);
 
-    int buffer_size=0;
+    unsigned long buffer_size=0;
 
-    ereport(INFO, (errmsg("checking memory context...")));
+    if (PG_ARGISNULL(0)) {
+        state = NULL;
+    } else {
+        state = PG_GETARG_ARRAYTYPE_P(0);
+    }
+
 
     if (AggCheckCallContext(fcinfo, NULL)) {
-        ereport(INFO, (errmsg("in agg context, PG_ARGISNULL(0) = %d", PG_ARGISNULL(0))));
-        if (PG_ARGISNULL(0)) {
-            volatile int *z = (int *)0;  // crash... do we get here?
-            num_new_elems = *z;
+        if (!state) { // first row
             num_new_elems = ARRNELEMS(b);
             buffer_size = max_rows * num_new_elems;
-            ereport(INFO, (errmsg("reading first row")));
-            state = copy_floatArrayType(b, 1000);
+            state = expand_if_needed(b);
             ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
             num_new_elems = ARRNELEMS(b);
             buffer_size = max_rows * num_new_elems;
-            state = PG_GETARG_ARRAYTYPE_P(0);
-            nbytes = VARSIZE(state);
-
-            ereport(INFO, (errmsg("nbytes=%lu, num_new_elems=%d", nbytes, num_new_elems)));
+            current_bytes = VARSIZE(state);
             old_state = state;
-//            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
-//            state = safe_repalloc(state, nbytes, nbytes + num_new_elems*(sizeof(float4)));
+    //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
+            state = expand_if_needed(state);
             if (state == NULL) {
                 ereport(ERROR, (errmsg("repalloc returned NULL pointer!")));
             } else if (state == old_state) {
                 ereport(INFO, (errmsg("repalloc returned same pointer")));
             } else {
-                ereport(INFO, (errmsg("repalloc returned new pointer")));
+//                ereport(INFO, (errmsg("repalloc returned new pointer")));
             }
-            SET_VARSIZE(state, nbytes + num_new_elems*(sizeof(float4)));
          }
     } else {
         num_new_elems = ARRNELEMS(b);
@@ -2218,10 +2231,11 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
         }
         ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
         num_new_elems = ARRNELEMS(b);
-        nbytes = VARSIZE(a);
-        state = palloc(nbytes + num_new_elems*(sizeof(float4)));
-        memcpy(state, a, nbytes);
-        SET_VARSIZE(state, nbytes + num_new_elems*(sizeof(float4)));
+        current_bytes = VARSIZE(a);
+        new_bytes = current_bytes + num_new_elems*(sizeof(float4));
+        state = palloc(new_bytes);
+        SET_VARSIZE(state, new_bytes);
+        memcpy(state, a, current_bytes);
     }
 
     if (ARR_NDIM(state) != ARR_NDIM(b)) {
@@ -2235,7 +2249,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
  
     if (num_current_elems + num_new_elems > buffer_size) {
-        ereport(ERROR, (errmsg("Buffer overflow!  %d + %d  > %d", num_current_elems, num_new_elems, buffer_size)));
+        ereport(ERROR, (errmsg("Buffer overflow!  %lu + %lu  > %lu", num_current_elems, num_new_elems, buffer_size)));
     }
 
     state_data = (float4 *) ARR_DATA_PTR(state);
@@ -2244,10 +2258,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     num_elements = num_current_elems + num_new_elems;
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
-    ereport(INFO, (errmsg("state dims = [%d, %d, %d]", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2])));
+//    ereport(INFO, (errmsg("state dims = [%d, %d, %d]", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2])));
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-    ereport(INFO, (errmsg("Returning state")));
+//    ereport(INFO, (errmsg("Returning state")));
     PG_RETURN_POINTER(state);
 }
