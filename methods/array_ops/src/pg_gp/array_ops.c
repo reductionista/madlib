@@ -2292,8 +2292,38 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
      bool        private_cxt;    /* use private memory context */
  } ArrayBuildStateArr;
 
-#define ALLOCSET_DEFAULT_SIZES \
-        ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
+//#define ALLOCSET_DEFAULT_SIZES \
+//        ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
+
+
+// TODO:  we should not be defining this here... must be some other
+ ///  way to get definition that's in mpool.h of gpdb source
+struct MPool
+{
+    MemoryContextData *parent;
+    MemoryContextData *context;
+
+    /*
+     * Total number of bytes are allocated through the memory
+     * context.
+     */
+    uint64 total_bytes_allocated;
+
+    /* How many bytes are used by the caller. */
+    uint64 bytes_used;
+
+    /*
+     * When a new allocation request arrives, and the current block
+     * does not have enough space for this request, we waste those
+     * several bytes at the end of the block. This variable stores
+     * total number of these wasted bytes.
+     */
+    uint64 bytes_wasted;
+
+    /* The latest allocated block of available space. */
+    void *start;
+    void *end;
+};
 
  /*
   * The following three functions provide essentially the same API as
@@ -2317,6 +2347,8 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
  {
      ArrayBuildStateArr *astate;
      MemoryContext arr_context = rcontext;   /* by default use the parent ctx */
+     MPool *mpool;  // Maybe we should be saving this somewhere? Right now,
+                    //   it's just temporary
  
      /* Lookup element type, unless element_type already provided */
      if (!OidIsValid(element_type))
@@ -2331,14 +2363,19 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
      }
  
      /* Make a temporary context to hold all the junk */
+
      if (subcontext)
-         arr_context = AllocSetContextCreate(rcontext,
-                                             "accumArrayResultArr",
-                                             ALLOCSET_DEFAULT_SIZES);
- 
+//         arr_context = AllocSetContextCreate(rcontext,
+//                                             "accumArrayResultArr",
+//                                             ALLOCSET_DEFAULT_SIZES);
+        mpool = mpool_create(arr_context, "accumArrayResultArr");
+        arr_context = mpool->context;
+
      /* Note we initialize all fields to zero */
      astate = (ArrayBuildStateArr *)
-         MemoryContextAllocZero(arr_context, sizeof(ArrayBuildStateArr));
+//         MemoryContextAllocZero(arr_context, sizeof(ArrayBuildStateArr));
+           mpool_alloc(arr_context, sizeof(ArrayBuildStateArr));
+           MemSet(arr_context, sizeof(ArrayBuildStateArr));
      astate->mcontext = arr_context;
      astate->private_cxt = subcontext;
  
