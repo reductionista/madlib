@@ -840,7 +840,6 @@ RETURNS VARCHAR AS $$
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-<<<<<<< HEAD
 -- aggregation for independent var
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(REAL[]);
 CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(REAL[]) (
@@ -857,6 +856,37 @@ CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(SMALLINT[]) (
    STYPE = SMALLINT[]
    );
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_agg_backport_transition(
+    state       Internal,
+    x           REAL[]
+) RETURNS Internal AS
+    'MODULE_PATHNAME', 'array_agg_array_transfn'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_agg_backport_merge(
+    state1   Internal,
+    state2   Internal
+) RETURNS Internal AS
+    'MODULE_PATHNAME', 'array_agg_array_mergefn'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_agg_backport_final(
+    state   Internal
+) RETURNS REAL[] AS
+    'MODULE_PATHNAME', 'array_agg_array_finalfn'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.array_agg_backport(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.array_agg_backport(REAL[]) (
+   STYPE = Internal,
+   SFUNC = MADLIB_SCHEMA.array_agg_backport_transition,
+   PREFUNC = MADLIB_SCHEMA.array_agg_backport_merge,
+   FINALFUNC = MADLIB_SCHEMA.array_agg_backport_final
+);
+
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
     state       REAL[],
     x           REAL[],
@@ -871,21 +901,21 @@ CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
    PREFUNC = array_cat
-   );
+);
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);
 CREATE AGGREGATE MADLIB_SCHEMA.real_agg_array_concat(REAL[]) (
    SFUNC = array_cat,
    STYPE = REAL[],
    PREFUNC = array_cat
-   );
+);
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.anyarray_agg_array_concat(REAL[]);
 CREATE AGGREGATE MADLIB_SCHEMA.anyarray_agg_array_concat(anyarray) (
    SFUNC = array_cat,
    STYPE = anyarray,
    PREFUNC = array_cat
-   );
+);
 
 CREATE FUNCTION MADLIB_SCHEMA.convert_array_to_bytea(var REAL[])
 RETURNS BYTEA
