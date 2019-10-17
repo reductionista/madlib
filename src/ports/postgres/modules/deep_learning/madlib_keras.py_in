@@ -422,11 +422,29 @@ def should_compute_metrics_this_iter(curr_iter, metrics_compute_frequency,
     return (curr_iter)%metrics_compute_frequency == 0 or \
            curr_iter == num_iterations
 
+# calculate fbeta score for multi-class/label classification
+def fbeta(y_true, y_pred, beta=2):
+    # clip predictions
+    y_pred = backend.clip(y_pred, 0, 1)
+    # calculate elements
+    tp = backend.sum(backend.round(backend.clip(y_true * y_pred, 0, 1)), axis=1)
+    fp = backend.sum(backend.round(backend.clip(y_pred - y_true, 0, 1)), axis=1)
+    fn = backend.sum(backend.round(backend.clip(y_true - y_pred, 0, 1)), axis=1)
+    # calculate precision
+    p = tp / (tp + fp + backend.epsilon())
+    # calculate recall
+    r = tp / (tp + fn + backend.epsilon())
+    # calculate fbeta, averaged across each class
+    bb = beta ** 2
+    fbeta_score = backend.mean((1 + bb) * (p * r) / (bb * p + r + backend.epsilon()))
+    return fbeta_score
+
 def init_model(model_architecture, compile_params):
     """
         Should only be called at the first row of first iteration.
     """
     segment_model = model_from_json(model_architecture)
+#    fbeta_keras = fbeta(K.variable(y_true), K.variable(y_pred)).eval(session=K.get_session())
     compile_model(segment_model, compile_params)
     return segment_model
 
