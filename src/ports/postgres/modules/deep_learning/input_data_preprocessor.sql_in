@@ -899,7 +899,7 @@ CREATE AGGREGATE MADLIB_SCHEMA.array_agg_backport(REAL[]) (
     SFUNC = MADLIB_SCHEMA.array_agg_backport_transition,
     COMBINEFUNC = MADLIB_SCHEMA.array_agg_backport_merge,
     FINALFUNC = MADLIB_SCHEMA.array_agg_backport_final,
-    SERIALFUNC = MADLIB_SCHEMA.array_agg_backup_serialize,
+    SERIALFUNC = MADLIB_SCHEMA.array_agg_backport_serialize,
     DESERIALFUNC = MADLIB_SCHEMA.array_agg_backport_deserialize
 ) PARALLEL SAFE;
 
@@ -916,7 +916,8 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER);
 CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
-   PREFUNC = array_cat
+--   PREFUNC = array_cat
+   PREFUNC = MADLIB_SCHEMA.my_array_concat_transition,
 );
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);
