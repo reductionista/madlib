@@ -2188,10 +2188,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     unsigned long num_current_elems, num_new_elems, num_elements;
     unsigned long current_bytes, new_bytes;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
-    unsigned long  max_rows = PG_GETARG_INT32(2);
     MemoryContext agg_context, new_context;
-
-    unsigned long buffer_size=0;
 
     if (PG_ARGISNULL(0)) {
         state = NULL;
@@ -2206,13 +2203,11 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //											ALLOCSET_DEFAULT_SIZES);
 //			MemoryContextSwitchTo(agg_context);
             num_new_elems = ARRNELEMS(b);
-            buffer_size = max_rows * num_new_elems;
             state = expand_if_needed(b);
 //            ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
             num_new_elems = ARRNELEMS(b);
-            buffer_size = max_rows * num_new_elems;
             current_bytes = VARSIZE(state);
             old_state = state;
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
@@ -2227,7 +2222,6 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
          }
     } else {
         num_new_elems = ARRNELEMS(b);
-        buffer_size = max_rows * num_new_elems;
         ereport(INFO, (errmsg("non-agg context!")));
         if (PG_ARGISNULL(0)) {
             ereport(ERROR, (errmsg("First operand must be non-null")));
@@ -2249,12 +2243,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
 //    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
 //    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
-//    ereport(INFO, (errmsg("buffer_size = %d", buffer_size)));
  
-    if (num_current_elems + num_new_elems > buffer_size) {
-        ereport(ERROR, (errmsg("Buffer overflow!  %lu + %lu  > %lu", num_current_elems, num_new_elems, buffer_size)));
-    }
-
     state_data = (float4 *) ARR_DATA_PTR(state);
     b_data = (float4 *) ARR_DATA_PTR(b);
 
@@ -2325,8 +2314,8 @@ struct MPool
     void *end;
 };
 
-PG_FUNCTION_INFO_V1(array_agg_serialize);
-Datum array_agg_serialize(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(array_agg_array_serialize);
+Datum array_agg_array_serialize(PG_FUNCTION_ARGS)
 {
     ArrayBuildStateArr *astate = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
     unsigned long bytea_data_size = ARR_OVERHEAD_NONULLS(astate->ndims) + astate->nbytes;
@@ -2338,8 +2327,8 @@ Datum array_agg_serialize(PG_FUNCTION_ARGS)
     PG_RETURN_BYTEA_P(b);
 };
 
-PG_FUNCTION_INFO_V1(array_agg_deserialize);
-Datum array_agg_deserialize(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(array_agg_array_deserialize);
+Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
 {
     bytea *b = PG_GETARG_BYTEA_P(0);
 
@@ -2653,7 +2642,7 @@ static inline void swap_states(ArrayBuildStateArr **state1, ArrayBuildStateArr *
                  ndatabytes;
      char       *data;
      int         i;
- 
+
      Assert(state1->array_type == array_type);
      Assert(state2->array_type == array_type);
      Assert(state1->mcontext == state2->mcontext);
