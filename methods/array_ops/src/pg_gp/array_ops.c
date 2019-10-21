@@ -2243,7 +2243,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
 //    ereport(INFO, (errmsg("num_current_elems = %d", num_current_elems)));
 //    ereport(INFO, (errmsg("num_new_elems = %d", num_new_elems)));
- 
+
     state_data = (float4 *) ARR_DATA_PTR(state);
     b_data = (float4 *) ARR_DATA_PTR(b);
 
@@ -2319,11 +2319,12 @@ Datum array_agg_array_serialize(PG_FUNCTION_ARGS)
 {
     ArrayBuildStateArr *astate = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
     unsigned long bytea_data_size = ARR_OVERHEAD_NONULLS(astate->ndims) + astate->nbytes;
+    astate->abytes = astate->nbytes;
 
     bytea *b = palloc(VARHDRSZ + bytea_data_size);
     SET_VARSIZE(b, VARHDRSZ + bytea_data_size);
-    memcpy(b, astate, bytea_data_size);
-    
+    memcpy(VARDATA_ANY(b), astate, bytea_data_size);
+
     PG_RETURN_BYTEA_P(b);
 };
 
@@ -2348,7 +2349,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
   * produce an output array having N+1 dimensions.  The inputs must all have
   * identical dimensionality as well as element type.
   */
- 
+
  /*
   * initArrayResultArr - initialize an empty ArrayBuildStateArr
   *
@@ -2363,42 +2364,42 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
  {
      ArrayBuildStateArr *astate;
      MemoryContext arr_context = rcontext;   /* by default use the parent ctx */
-//     MPool *mpool;  // Maybe we should be saving this somewhere? Right now,
-                    //   it's just temporary
- 
+    //     MPool *mpool;    // Maybe we should be saving this somewhere? Right now,
+                        //   it's just temporary
+
      /* Lookup element type, unless element_type already provided */
      if (!OidIsValid(element_type))
      {
          element_type = get_element_type(array_type);
- 
+
          if (!OidIsValid(element_type))
              ereport(ERROR,
                      (errcode(ERRCODE_DATATYPE_MISMATCH),
                       errmsg("data type %s is not an array type",
                              format_type_be(array_type))));
      }
- 
+
      /* Make a temporary context to hold all the junk */
 
      if (subcontext)
          arr_context = AllocSetContextCreate(rcontext,
                                              "accumArrayResultArr",
                                              ALLOCSET_DEFAULT_SIZES);
-//        mpool = mpool_create(arr_context, "accumArrayResultArr");
-//        arr_context = mpool->context;
+    //        mpool = mpool_create(arr_context, "accumArrayResultArr");
+    //        arr_context = mpool->context;
 
      /* Note we initialize all fields to zero */
      astate = (ArrayBuildStateArr *)
          MemoryContextAllocZero(arr_context, sizeof(ArrayBuildStateArr));
-//           mpool_alloc(arr_context, sizeof(ArrayBuildStateArr));
-//           MemSet(arr_context, sizeof(ArrayBuildStateArr));
+    //           mpool_alloc(arr_context, sizeof(ArrayBuildStateArr));
+    //           MemSet(arr_context, sizeof(ArrayBuildStateArr));
      astate->mcontext = arr_context;
      astate->private_cxt = subcontext;
- 
+
      /* Save relevant datatype information */
      astate->array_type = array_type;
      astate->element_type = element_type;
- 
+
      return astate;
 }
 
@@ -2425,7 +2426,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
                  ndatabytes;
      char       *data;
      int         i;
- 
+
      /*
       * We disallow accumulating null subarrays.  Another plausible definition
       * is to ignore them, but callers that want that can just skip calling
@@ -2435,17 +2436,17 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
          ereport(ERROR,
                  (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
                   errmsg("cannot accumulate null arrays")));
- 
+
      /* Detoast input array in caller's context */
      arg = DatumGetArrayTypeP(dvalue);
- 
+
      if (astate == NULL)
          astate = initArrayResultArr(array_type, InvalidOid, rcontext, true);
      else
          Assert(astate->array_type == array_type);
- 
+
      oldcontext = MemoryContextSwitchTo(astate->mcontext);
- 
+
      /* Collect this input's dimensions */
      ndims = ARR_NDIM(arg);
      dims = ARR_DIMS(arg);
@@ -2453,11 +2454,11 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
      data = ARR_DATA_PTR(arg);
      nitems = ArrayGetNItems(ndims, dims);
      ndatabytes = ARR_SIZE(arg) - ARR_DATA_OFFSET(arg);
- 
+
      if (astate->ndims == 0)
      {
          /* First input; check/save the dimensionality info */
- 
+
          /* Should we allow empty inputs and just produce an empty output? */
          if (ndims == 0)
              ereport(ERROR,
@@ -2468,7 +2469,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
                      (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
                       errmsg("number of array dimensions (%d) exceeds the maximum allowed (%d)",
                              ndims + 1, MAXDIM)));
- 
+
          /*
           * The output array will have n+1 dimensions, with the ones after the
           * first matching the input's dimensions.
@@ -2478,7 +2479,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
          memcpy(&astate->dims[1], dims, ndims * sizeof(int));
          astate->lbs[0] = 1;
          memcpy(&astate->lbs[1], lbs, ndims * sizeof(int));
- 
+
          /* Allocate at least enough data space for this item */
          astate->abytes = 1024;
          while (astate->abytes <= ndatabytes)
@@ -2499,7 +2500,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
                          (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
                           errmsg("cannot accumulate arrays of different dimensionality")));
          }
- 
+
          /* Enlarge data space if needed */
          if (astate->nbytes + ndatabytes > astate->abytes)
          {
@@ -2508,7 +2509,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
              astate->data = (char *) repalloc(astate->data, astate->abytes);
          }
      }
- 
+
      /*
       * Copy the data portion of the sub-array.  Note we assume that the
       * advertised data length of the sub-array is properly aligned.  We do not
@@ -2517,12 +2518,12 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
       */
      memcpy(astate->data + astate->nbytes, data, ndatabytes);
      astate->nbytes += ndatabytes;
- 
+
      /* Deal with null bitmap if needed */
      if (astate->nullbitmap || ARR_HASNULL(arg))
      {
          int         newnitems = astate->nitems + nitems;
- 
+
          if (astate->nullbitmap == NULL)
          {
              /*
@@ -2547,16 +2548,16 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
                            ARR_NULLBITMAP(arg), 0,
                            nitems);
      }
- 
+
      astate->nitems += nitems;
      astate->dims[0] += 1;
- 
+
      MemoryContextSwitchTo(oldcontext);
- 
+
      /* Release detoasted copy if any */
      if ((Pointer) arg != DatumGetPointer(dvalue))
          pfree(arg);
- 
+
      return astate;
 }
 
@@ -2565,42 +2566,42 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
   * ARRAY_AGG(anyarray) aggregate function
   */
 PG_FUNCTION_INFO_V1(array_agg_array_transfn);
- Datum
- array_agg_array_transfn(PG_FUNCTION_ARGS)
- {
+Datum
+array_agg_array_transfn(PG_FUNCTION_ARGS)
+{
      Oid         arg1_typeid = get_fn_expr_argtype(fcinfo->flinfo, 1);
      MemoryContext aggcontext;
      ArrayBuildStateArr *state;
- 
+
      if (arg1_typeid == InvalidOid)
          ereport(ERROR,
                  (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
                   errmsg("could not determine input data type")));
- 
+
      /*
       * Note: we do not need a run-time check about whether arg1_typeid is a
       * valid array type, because the parser would have verified that while
       * resolving the input/result types of this polymorphic aggregate.
       */
- 
+
      if (!AggCheckCallContext(fcinfo, &aggcontext))
      {
          /* cannot be called directly because of internal-type argument */
          elog(ERROR, "array_agg_array_transfn called in non-aggregate context");
      }
- 
- 
+
+
      if (PG_ARGISNULL(0))
          state = initArrayResultArr(arg1_typeid, InvalidOid, aggcontext, false);
      else
          state = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
- 
+
      state = accumArrayResultArr(state,
                                  PG_GETARG_DATUM(1),
                                  PG_ARGISNULL(1),
                                  arg1_typeid,
                                  aggcontext);
- 
+
      /*
       * The transition type for array_agg() is declared to be "internal", which
       * is a pass-by-value type the same size as a pointer.  So we can safely
@@ -2612,9 +2613,9 @@ PG_FUNCTION_INFO_V1(array_agg_array_transfn);
 // swaps state1 and state2
 static inline void swap_states(ArrayBuildStateArr **state1, ArrayBuildStateArr **state2)
 {
-    ArrayBuildStateArr *state_temp = *state1;
+    ArrayBuildStateArr **state_temp = *state1;
     *state1 = *state2;
-    *state2 = *state1;
+    *state2 = *state_temp;
 }
 
 /*
@@ -2625,129 +2626,125 @@ static inline void swap_states(ArrayBuildStateArr **state1, ArrayBuildStateArr *
   *  concatenated into a single array where first dimension is the sum
   *  of the two first dimensions, and rest of the dimensions are left
   *  untouched.
-  *  
+  *
   */
- ArrayBuildStateArr *
- mergeArrayResultArr(ArrayBuildStateArr *state1,
-                     ArrayBuildStateArr *state2,
-                     Oid array_type,
-                     MemoryContext rcontext)
- {
-     ArrayType  *arg;
-     MemoryContext oldcontext;
-     int        *dims,
-                *lbs,
-                 ndims,
-                 nitems,
-                 ndatabytes;
-     char       *data;
-     int         i;
+ArrayBuildStateArr *
+mergeArrayResultArr(ArrayBuildStateArr *state1,
+                 ArrayBuildStateArr *state2,
+                 Oid array_type,
+                 MemoryContext rcontext)
+{
+    ArrayType  *arg;
+    MemoryContext oldcontext;
+    int         i;
+    elog(INFO, "Start merge");
 
-     Assert(state1->array_type == array_type);
-     Assert(state2->array_type == array_type);
-     Assert(state1->mcontext == state2->mcontext);
- 
-     oldcontext = MemoryContextSwitchTo(state1->mcontext);
- 
-     /* Collect this input's dimensions */
-     ndims = ARR_NDIM(arg);
-     dims = ARR_DIMS(arg);
-     lbs = ARR_LBOUND(arg);
-     data = ARR_DATA_PTR(arg);
-     nitems = ArrayGetNItems(ndims, dims);
-     ndatabytes = ARR_SIZE(arg) - ARR_DATA_OFFSET(arg);
- 
-     if (state1->ndims != state2->ndims)
-         ereport(ERROR,
-                 (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
-                  errmsg("cannot merge arrays of different dimensionality")));
-     for (i = 1; i < ndims; i++)
-     {
-         if (state1->dims[i] != state2->dims[i] || state2->lbs[i] != state2->lbs[i])
-             ereport(ERROR,
-                     (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
-                      errmsg("cannot merge arrays of different dimensionality")));
-     }
+    Assert(state1->array_type == array_type);
+    Assert(state2->array_type == array_type);
+    Assert(state1->mcontext == state2->mcontext);
 
-     // swap states if necessary, to make sure state1 is the state with
-     //   the larger amount of space already allocated (where we will
-     //   store the result)
-     if (state2->abytes > state1->abytes) {
-         swap_states(&state1, &state2);
-     }
+    oldcontext = MemoryContextSwitchTo(state1->mcontext);
 
-     /* Enlarge state1's available space further if needed */
-     if (state1->nbytes + state2->nbytes > state1->abytes)
-     {
-         state1->abytes = state1->abytes * 2;
-         /* TODO: Replace with something like: state1->data = (char *) mpool(state1->data, state1->abytes); */
-         /*   or whatever repalloc equiv is for mpool */
-         state1->data = (char *) repalloc(state1->data, state1->abytes);
-     }
+    elog(INFO, "state1->ndims: %d state2->ndims: %d", state1->ndims, state2->ndims);
+    if (state1->ndims != state2->ndims){
+        elog(INFO, "state1->ndims: %d state2->ndims: %d", state1->ndims, state2->ndims);
+        ereport(ERROR,
+                (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
+                 errmsg("cannot merge arrays of different dimensionality1")));
+    }
+    for (i = 1; i < state1->ndims; i++)
+    {
+        if (state1->dims[i] != state2->dims[i] || state1->lbs[i] != state2->lbs[i])
+            ereport(ERROR,
+                    (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
+                     errmsg("cannot merge arrays of different dimensionality2")));
+    }
 
-     /* append state2 data onto the end of state1 data */
-     memcpy(state1->data + state1->nbytes, state2->data, state2->nbytes);
+    // swap states if necessary, to make sure state1 is the state with
+    //   the larger amount of space already allocated (where we will
+    //   store the result)
 
-     state1->nbytes += state2->nbytes;
-     state1->nitems += nitems;
-     state1->dims[0] += state2->dims[0];
- 
-     MemoryContextSwitchTo(oldcontext);
- 
-     return state1;
+    elog(INFO, "before swap_states");
+    if (state2->abytes > state1->abytes) {
+        swap_states(&state1, &state2);
+    }
+
+    /* Enlarge state1's available space further if needed */
+    if (state1->nbytes + state2->nbytes > state1->abytes)
+    {
+        state1->abytes = state1->abytes * 2;
+        /* TODO: Replace with something like: state1->data = (char *) mpool(state1->data, state1->abytes); */
+        /*   or whatever repalloc equiv is for mpool */
+
+        elog(INFO, "before repalloc");
+        state1->data = (char *) repalloc(state1->data, state1->abytes);
+    }
+
+    elog(INFO, "before memcpy");
+    /* append state2 data onto the end of state1 data */
+    memcpy(state1->data + state1->nbytes, state2->data, state2->nbytes);
+
+    state1->nbytes += state2->nbytes;
+    state1->nitems += state2->nitems;
+    state1->dims[0] += state2->dims[0];
+
+    MemoryContextSwitchTo(oldcontext);
+
+    elog(INFO, "End merge");
+    return state1;
 }
 /*
   * array_agg_array merge function
   */
 PG_FUNCTION_INFO_V1(array_agg_array_mergefn);
- Datum
- array_agg_array_mergefn(PG_FUNCTION_ARGS)
- {
-     Oid         arg1_typeid = get_fn_expr_argtype(fcinfo->flinfo, 1);
-     MemoryContext aggcontext;
-     ArrayBuildStateArr *state1, *state2;
- 
-     if (arg1_typeid == InvalidOid)
-         ereport(ERROR,
-                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                  errmsg("could not determine input data type")));
- 
-     /*
-      * Note: we do not need a run-time check about whether arg1_typeid is a
-      * valid array type, because the parser would have verified that while
-      * resolving the input/result types of this polymorphic aggregate.
-      */
- 
-     if (!AggCheckCallContext(fcinfo, &aggcontext))
-     {
-         /* cannot be called directly because of internal-type argument */
-         elog(ERROR, "array_agg_array_mergefn called in non-aggregate context");
-     }
+Datum
+array_agg_array_mergefn(PG_FUNCTION_ARGS)
+{
+    Oid         arg1_typeid = get_fn_expr_argtype(fcinfo->flinfo, 1);
+    MemoryContext aggcontext;
+    ArrayBuildStateArr *state1, *state2;
 
-     state1 = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
-     state2 = (ArrayBuildStateArr *) PG_GETARG_POINTER(1);
- 
-     if (PG_ARGISNULL(0)) {
-         if (PG_ARGISNULL(1)) {
-             PG_RETURN_NULL();    /* return null if both inputs are null */
-         }
-         PG_RETURN_POINTER(state2);  // return state2 if state1 is null
-     } else if (PG_ARGISNULL(1)) {
-         PG_RETURN_POINTER(state1); // return state1 if state2 is null
-     }
+    if (arg1_typeid == InvalidOid)
+        ereport(ERROR,
+                (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+                 errmsg("could not determine input data type")));
 
-     // do actual merge only when neither state is null
-     state1 = mergeArrayResultArr(state1,
-                                  state2,
-                                  arg1_typeid,
-                                  aggcontext);
- 
-     /*
-      * The transition type for array_agg() is declared to be "internal", which
-      * is a pass-by-value type the same size as a pointer.  So we can safely
-      * pass the ArrayBuildStateArr pointer through nodeAgg.c's machinations.
-      */
-     PG_RETURN_POINTER(state1);
+    /*
+     * Note: we do not need a run-time check about whether arg1_typeid is a
+     * valid array type, because the parser would have verified that while
+     * resolving the input/result types of this polymorphic aggregate.
+     */
+
+    if (!AggCheckCallContext(fcinfo, &aggcontext))
+    {
+        /* cannot be called directly because of internal-type argument */
+        elog(ERROR, "array_agg_array_mergefn called in non-aggregate context");
+    }
+
+    state1 = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
+    state2 = (ArrayBuildStateArr *) PG_GETARG_POINTER(1);
+
+    if (PG_ARGISNULL(0)) {
+        if (PG_ARGISNULL(1)) {
+            PG_RETURN_NULL();    /* return null if both inputs are null */
+        }
+        PG_RETURN_POINTER(state2);  // return state2 if state1 is null
+    } else if (PG_ARGISNULL(1)) {
+        PG_RETURN_POINTER(state1); // return state1 if state2 is null
+    }
+
+    // do actual merge only when neither state is null
+    state1 = mergeArrayResultArr(state1,
+                                 state2,
+                                 arg1_typeid,
+                                 aggcontext);
+
+    /*
+     * The transition type for array_agg() is declared to be "internal", which
+     * is a pass-by-value type the same size as a pointer.  So we can safely
+     * pass the ArrayBuildStateArr pointer through nodeAgg.c's machinations.
+     */
+    PG_RETURN_POINTER(state1);
  }
 
 /*
@@ -2759,64 +2756,64 @@ PG_FUNCTION_INFO_V1(array_agg_array_mergefn);
   */
  Datum
  makeArrayResultArr(ArrayBuildStateArr *astate,
-                    MemoryContext rcontext,
-                    bool release)
+                   MemoryContext rcontext,
+                   bool release)
  {
-     ArrayType  *result;
-     MemoryContext oldcontext;
- 
-     /* Build the final array result in rcontext */
-     oldcontext = MemoryContextSwitchTo(rcontext);
- 
-     if (astate->ndims == 0)
-     {
-         /* No inputs, return empty array */
-         result = construct_empty_array(astate->element_type);
-     }
-     else
-     {
-         int         dataoffset,
-                     nbytes;
- 
-         /* Compute required space */
-         nbytes = astate->nbytes;
-         if (astate->nullbitmap != NULL)
-         {
-             dataoffset = ARR_OVERHEAD_WITHNULLS(astate->ndims, astate->nitems);
-             nbytes += dataoffset;
-         }
-         else
-         {
-             dataoffset = 0;
-             nbytes += ARR_OVERHEAD_NONULLS(astate->ndims);
-         }
- 
-         result = (ArrayType *) palloc0(nbytes);
-         SET_VARSIZE(result, nbytes);
-         result->ndim = astate->ndims;
-         result->dataoffset = dataoffset;
-         result->elemtype = astate->element_type;
- 
-         memcpy(ARR_DIMS(result), astate->dims, astate->ndims * sizeof(int));
-         memcpy(ARR_LBOUND(result), astate->lbs, astate->ndims * sizeof(int));
-         memcpy(ARR_DATA_PTR(result), astate->data, astate->nbytes);
- 
-         if (astate->nullbitmap != NULL)
-             array_bitmap_copy(ARR_NULLBITMAP(result), 0,
-                               astate->nullbitmap, 0,
-                               astate->nitems);
-     }
- 
-     MemoryContextSwitchTo(oldcontext);
- 
-     /* Clean up all the junk */
-     if (release)
-     {
-         Assert(astate->private_cxt);
-         MemoryContextDelete(astate->mcontext);
-     }
- 
-     return PointerGetDatum(result);
+    ArrayType  *result;
+    MemoryContext oldcontext;
+
+    /* Build the final array result in rcontext */
+    oldcontext = MemoryContextSwitchTo(rcontext);
+
+    if (astate->ndims == 0)
+    {
+        /* No inputs, return empty array */
+        result = construct_empty_array(astate->element_type);
+    }
+    else
+    {
+        int         dataoffset,
+                    nbytes;
+
+        /* Compute required space */
+        nbytes = astate->nbytes;
+        if (astate->nullbitmap != NULL)
+        {
+            dataoffset = ARR_OVERHEAD_WITHNULLS(astate->ndims, astate->nitems);
+            nbytes += dataoffset;
+        }
+        else
+        {
+            dataoffset = 0;
+            nbytes += ARR_OVERHEAD_NONULLS(astate->ndims);
+        }
+
+        result = (ArrayType *) palloc0(nbytes);
+        SET_VARSIZE(result, nbytes);
+        result->ndim = astate->ndims;
+        result->dataoffset = dataoffset;
+        result->elemtype = astate->element_type;
+
+        memcpy(ARR_DIMS(result), astate->dims, astate->ndims * sizeof(int));
+        memcpy(ARR_LBOUND(result), astate->lbs, astate->ndims * sizeof(int));
+        memcpy(ARR_DATA_PTR(result), astate->data, astate->nbytes);
+
+        if (astate->nullbitmap != NULL)
+            array_bitmap_copy(ARR_NULLBITMAP(result), 0,
+                              astate->nullbitmap, 0,
+                              astate->nitems);
+    }
+
+    MemoryContextSwitchTo(oldcontext);
+
+    /* Clean up all the junk */
+    if (release)
+    {
+        Assert(astate->private_cxt);
+        MemoryContextDelete(astate->mcontext);
+    }
+
+    return PointerGetDatum(result);
 }
 
 /* final func for array_agg_array */
@@ -2824,31 +2821,33 @@ PG_FUNCTION_INFO_V1(array_agg_array_finalfn);
 Datum
 array_agg_array_finalfn(PG_FUNCTION_ARGS)
 {
-     Datum       result;
-     ArrayBuildState *state;
-     int         dims[1];
-     int         lbs[1];
- 
-     /* cannot be called directly because of internal-type argument */
-     Assert(AggCheckCallContext(fcinfo, NULL));
- 
-     state = PG_ARGISNULL(0) ? NULL : (ArrayBuildState *) PG_GETARG_POINTER(0);
- 
-     if (state == NULL)
-         PG_RETURN_NULL();       /* returns null iff no input values */
- 
-     dims[0] = state->nelems;
-     lbs[0] = 1;
- 
-     /*
-      * Make the result.  We cannot release the ArrayBuildState because
-      * sometimes aggregate final functions are re-executed.  Rather, it is
-      * nodeAgg.c's responsibility to reset the aggcontext when it's safe to do
-      * so.
-      */
-     result = makeMdArrayResult(state, 1, dims, lbs,
-                                CurrentMemoryContext,
-                                false);
- 
-     PG_RETURN_DATUM(result);
+    Datum       result;
+    ArrayBuildState *state;
+    int         dims[1];
+    int         lbs[1];
+
+    elog(INFO, "Start final");
+    /* cannot be called directly because of internal-type argument */
+    Assert(AggCheckCallContext(fcinfo, NULL));
+
+    state = PG_ARGISNULL(0) ? NULL : (ArrayBuildState *) PG_GETARG_POINTER(0);
+
+    if (state == NULL)
+        PG_RETURN_NULL();       /* returns null iff no input values */
+
+    dims[0] = state->nelems;
+    lbs[0] = 1;
+
+    /*
+     * Make the result.  We cannot release the ArrayBuildState because
+     * sometimes aggregate final functions are re-executed.  Rather, it is
+     * nodeAgg.c's responsibility to reset the aggcontext when it's safe to do
+     * so.
+     */
+    result = makeMdArrayResult(state, 1, dims, lbs,
+                               CurrentMemoryContext,
+                               false);
+
+    elog(INFO, "End final");
+    PG_RETURN_DATUM(result);
  }
