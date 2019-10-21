@@ -2338,7 +2338,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
     ArrayBuildStateArr *astate = palloc(bytea_data_size);
 
     memcpy(astate, VARDATA_ANY(b), bytea_data_size);
-
+    astate->mcontext = CurrentMemoryContext;
     PG_RETURN_POINTER(astate);
 };
 
