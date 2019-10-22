@@ -2318,7 +2318,8 @@ PG_FUNCTION_INFO_V1(array_agg_array_serialize);
 Datum array_agg_array_serialize(PG_FUNCTION_ARGS)
 {
     ArrayBuildStateArr *astate = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
-    unsigned long bytea_data_size = ARR_OVERHEAD_NONULLS(astate->ndims) + astate->nbytes;
+    elog(INFO, "ser astate->ndims: %d", astate->ndims);
+    unsigned long bytea_data_size = sizeof(ArrayBuildStateArr) + astate->nbytes;
     astate->abytes = astate->nbytes;
 
     bytea *b = palloc(VARHDRSZ + bytea_data_size);
@@ -2335,9 +2336,18 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
 
     unsigned long bytea_data_size = VARSIZE(b) - VARHDRSZ;
 
-    ArrayBuildStateArr *astate = palloc(bytea_data_size);
+    unsigned long ndims = ((ArrayBuildStateArr *) VARDATA_ANY(b))->ndims;
+    elog(INFO, "des local ndims: %d", ndims);
+    unsigned long overhead = sizeof(ArrayBuildStateArr);
+    ArrayBuildStateArr *astate = palloc(overhead);
+    memcpy(astate, VARDATA_ANY(b), overhead);
+    elog(INFO, "des after overhead copy astate->ndims: %d", astate->ndims);
 
-    memcpy(astate, VARDATA_ANY(b), bytea_data_size);
+    astate->data = palloc(bytea_data_size-overhead);
+    memcpy(astate->data, VARDATA_ANY(b)+overhead, bytea_data_size-overhead);
+
+    // astate->data = (char *)astate + ARR_OVERHEAD_NONULLS(astate->ndims);
+    elog(INFO, "des astate->ndims: %d", astate->ndims);
     astate->mcontext = CurrentMemoryContext;
     PG_RETURN_POINTER(astate);
 };
@@ -2637,7 +2647,6 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
     ArrayType  *arg;
     MemoryContext oldcontext;
     int         i;
-    elog(INFO, "Start merge");
 
     Assert(state1->array_type == array_type);
     Assert(state2->array_type == array_type);
@@ -2645,9 +2654,7 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
 
     oldcontext = MemoryContextSwitchTo(state1->mcontext);
 
-    elog(INFO, "state1->ndims: %d state2->ndims: %d", state1->ndims, state2->ndims);
     if (state1->ndims != state2->ndims){
-        elog(INFO, "state1->ndims: %d state2->ndims: %d", state1->ndims, state2->ndims);
         ereport(ERROR,
                 (errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
                  errmsg("cannot merge arrays of different dimensionality1")));
@@ -2664,7 +2671,6 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
     //   the larger amount of space already allocated (where we will
     //   store the result)
 
-    elog(INFO, "before swap_states");
     if (state2->abytes > state1->abytes) {
         swap_states(&state1, &state2);
     }
@@ -2676,11 +2682,9 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
         /* TODO: Replace with something like: state1->data = (char *) mpool(state1->data, state1->abytes); */
         /*   or whatever repalloc equiv is for mpool */
 
-        elog(INFO, "before repalloc");
         state1->data = (char *) repalloc(state1->data, state1->abytes);
     }
 
-    elog(INFO, "before memcpy");
     /* append state2 data onto the end of state1 data */
     memcpy(state1->data + state1->nbytes, state2->data, state2->nbytes);
 
@@ -2689,8 +2693,6 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
     state1->dims[0] += state2->dims[0];
 
     MemoryContextSwitchTo(oldcontext);
-
-    elog(INFO, "End merge");
     return state1;
 }
 /*
@@ -2758,7 +2760,7 @@ array_agg_array_mergefn(PG_FUNCTION_ARGS)
  makeArrayResultArr(ArrayBuildStateArr *astate,
                    MemoryContext rcontext,
                    bool release)
- {
+{
     ArrayType  *result;
     MemoryContext oldcontext;
 
@@ -2822,32 +2824,23 @@ Datum
 array_agg_array_finalfn(PG_FUNCTION_ARGS)
 {
     Datum       result;
-    ArrayBuildState *state;
-    int         dims[1];
-    int         lbs[1];
+    ArrayBuildStateArr *state;
 
-    elog(INFO, "Start final");
     /* cannot be called directly because of internal-type argument */
     Assert(AggCheckCallContext(fcinfo, NULL));
 
-    state = PG_ARGISNULL(0) ? NULL : (ArrayBuildState *) PG_GETARG_POINTER(0);
+    state = PG_ARGISNULL(0) ? NULL : (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
 
     if (state == NULL)
         PG_RETURN_NULL();       /* returns null iff no input values */
 
-    dims[0] = state->nelems;
-    lbs[0] = 1;
-
     /*
-     * Make the result.  We cannot release the ArrayBuildState because
+     * Make the result.  We cannot release the ArrayBuildStateArr because
      * sometimes aggregate final functions are re-executed.  Rather, it is
      * nodeAgg.c's responsibility to reset the aggcontext when it's safe to do
      * so.
      */
-    result = makeMdArrayResult(state, 1, dims, lbs,
-                               CurrentMemoryContext,
-                               false);
+    result = makeArrayResultArr(state, CurrentMemoryContext, false);
 
-    elog(INFO, "End final");
     PG_RETURN_DATUM(result);
- }
+}
