@@ -2120,7 +2120,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
     data_size = sizeof(float4) * ARRNELEMS(a);
     ndims = ARR_NDIM(a);
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
-    current_space = VARSIZE(a);
+    current_space = a->data_offset;
 
     if (current_size + new_bytes > current_space) {
         new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
@@ -2146,7 +2146,6 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     float4 *b_data;
     float4 *state_data;
     unsigned long num_current_elems, num_new_elems, num_elements;
-    unsigned long current_bytes, new_bytes;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
     MemoryContext agg_context;
 
@@ -2168,7 +2167,6 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             PG_RETURN_POINTER(state);
         } else {
             num_new_elems = ARRNELEMS(b);
-            current_bytes = VARSIZE(state);
             old_state = state;
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
             state = expand_if_needed(state, num_new_elems * sizeof(float4));
@@ -2182,17 +2180,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
          }
     } else {
         num_new_elems = ARRNELEMS(b);
-        ereport(INFO, (errmsg("non-agg context!")));
-        if (PG_ARGISNULL(0)) {
-            ereport(ERROR, (errmsg("First operand must be non-null")));
-        }
-        ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
-        num_new_elems = ARRNELEMS(b);
-        current_bytes = VARSIZE(a);
-        new_bytes = current_bytes + num_new_elems*(sizeof(float4));
-        state = palloc(new_bytes);
-        memcpy(state, a, current_bytes);
-        SET_VARSIZE(state, new_bytes);
+        ereport(ERROR, (errmsg("non-agg context!")));
     }
 
     if (ARR_NDIM(state) != ARR_NDIM(b)) {
