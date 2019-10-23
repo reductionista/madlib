@@ -2111,49 +2111,9 @@ General_Array_to_Cumulative_Array(
 
 #define ARRNELEMS(x)  ArrayGetNItems(ARR_NDIM(x), ARR_DIMS(x))
 
-/* Create a new "ndims"-D array of floats with room for "num" elements */
-ArrayType *
-new_floatArrayType(int ndims, int *shape, int num)
+ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
 {
-	ArrayType  *r;
-	unsigned long nbytes = ARR_OVERHEAD_NONULLS(ndims) + sizeof(float4) * num;
-//        ereport(INFO, (errmsg("nbytes = %lu", nbytes )));
-
-	r = (ArrayType *) palloc0(nbytes);
-
-	SET_VARSIZE(r, nbytes);
-	ARR_NDIM(r) = ndims;
-//    ereport(INFO, (errmsg("ndims = %d", ndims )));
-	r->dataoffset = 0;			/* marker for no null bitmap */
-    for (int i=0; i < ndims; i++) {
-//        ereport(INFO, (errmsg("ARR_DIMS[%d] = %d", i, shape[i])));
-        ARR_DIMS(r)[i] = shape[i];
-	    ARR_LBOUND(r)[i] = 1;
-    }
-
-	ARR_ELEMTYPE(r) = FLOAT4OID;
-
-	return r;
-}
-
-// Copy and expand array size by x times
-ArrayType *
-copy_floatArrayType(ArrayType *a, int x)
-{
-	ArrayType  *r;
-	int	n = ARRNELEMS(a);
-
-    r = new_floatArrayType(ARR_NDIM(a), ARR_DIMS(a), x*n);
-	memcpy(ARR_DATA_PTR(r), ARR_DATA_PTR(a), n * sizeof(float4));
-
-//    ARR_DIMS(r)[0] *= x;
-
-	return r;
-}
-
-ArrayType *expand_if_needed(ArrayType *a)
-{
-    unsigned long data_size, current_size, new_size;
+    unsigned long data_size, current_size;
     unsigned long ndims, current_space, new_space;
     ArrayType *r=a;
 
@@ -2162,8 +2122,8 @@ ArrayType *expand_if_needed(ArrayType *a)
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
     current_space = VARSIZE(a);
 
-    if (current_size + data_size > current_space) {
-        new_space = current_space + data_size;  // If already half full, double
+    if (current_size + new_bytes > current_space) {
+        new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
                                                // size of array allocated
 //        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
         r = palloc(new_space);
@@ -2188,7 +2148,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     unsigned long num_current_elems, num_new_elems, num_elements;
     unsigned long current_bytes, new_bytes;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
-    MemoryContext agg_context, new_context;
+    MemoryContext agg_context;
 
     if (PG_ARGISNULL(0)) {
         state = NULL;
@@ -2203,7 +2163,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //											ALLOCSET_DEFAULT_SIZES);
 //			MemoryContextSwitchTo(agg_context);
             num_new_elems = ARRNELEMS(b);
-            state = expand_if_needed(b);
+            state = expand_if_needed(b, num_new_elems * sizeof(float4));
 //            ereport(INFO, (errmsg("read first row")));
             PG_RETURN_POINTER(state);
         } else {
@@ -2211,7 +2171,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             current_bytes = VARSIZE(state);
             old_state = state;
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
-            state = expand_if_needed(state);
+            state = expand_if_needed(state, num_new_elems * sizeof(float4));
             if (state == NULL) {
                 ereport(ERROR, (errmsg("repalloc returned NULL pointer!")));
             } else if (state == old_state) {
@@ -2336,7 +2296,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
 
     unsigned long bytea_data_size = VARSIZE(b) - VARHDRSZ;
 
-    unsigned long ndims = ((ArrayBuildStateArr *) VARDATA_ANY(b))->ndims;
+    int ndims = ((ArrayBuildStateArr *) VARDATA_ANY(b))->ndims;
     elog(INFO, "des local ndims: %d", ndims);
     unsigned long overhead = sizeof(ArrayBuildStateArr);
     ArrayBuildStateArr *astate = palloc(overhead);
@@ -2623,9 +2583,9 @@ array_agg_array_transfn(PG_FUNCTION_ARGS)
 // swaps state1 and state2
 static inline void swap_states(ArrayBuildStateArr **state1, ArrayBuildStateArr **state2)
 {
-    ArrayBuildStateArr **state_temp = *state1;
+    ArrayBuildStateArr *state_temp = *state1;
     *state1 = *state2;
-    *state2 = *state_temp;
+    *state2 = state_temp;
 }
 
 /*
@@ -2644,7 +2604,6 @@ mergeArrayResultArr(ArrayBuildStateArr *state1,
                  Oid array_type,
                  MemoryContext rcontext)
 {
-    ArrayType  *arg;
     MemoryContext oldcontext;
     int         i;
 
@@ -2726,12 +2685,12 @@ array_agg_array_mergefn(PG_FUNCTION_ARGS)
     state1 = (ArrayBuildStateArr *) PG_GETARG_POINTER(0);
     state2 = (ArrayBuildStateArr *) PG_GETARG_POINTER(1);
 
-    if (PG_ARGISNULL(0)) {
-        if (PG_ARGISNULL(1)) {
+    if (!state1 || PG_ARGISNULL(0)) {
+        if (! state2 || PG_ARGISNULL(1)) {
             PG_RETURN_NULL();    /* return null if both inputs are null */
         }
         PG_RETURN_POINTER(state2);  // return state2 if state1 is null
-    } else if (PG_ARGISNULL(1)) {
+    } else if (!state2 || PG_ARGISNULL(1)) {
         PG_RETURN_POINTER(state1); // return state1 if state2 is null
     }
 
