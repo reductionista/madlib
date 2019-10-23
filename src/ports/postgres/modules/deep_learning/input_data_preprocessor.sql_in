@@ -916,8 +916,8 @@ DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER);
 CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[]) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
-   PREFUNC = array_cat
---   PREFUNC = MADLIB_SCHEMA.my_array_concat_transition
+--   PREFUNC = array_cat
+   PREFUNC = MADLIB_SCHEMA.my_array_concat_transition
 );
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);
