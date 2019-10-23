@@ -2111,6 +2111,8 @@ General_Array_to_Cumulative_Array(
 
 #define ARRNELEMS(x)  ArrayGetNItems(ARR_NDIM(x), ARR_DIMS(x))
 
+#define ARR_NBYTES(a)  (ARR_OVERHEAD_NONULLS(ARR_NDIM(a)) + sizeof(float4) * ARRNELEMS(a))
+
 ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
 {
     unsigned long data_size, current_size;
@@ -2120,13 +2122,20 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
     data_size = sizeof(float4) * ARRNELEMS(a);
     ndims = ARR_NDIM(a);
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
-    current_space = a->data_offset;
+    current_space = VARSIZE(a);
 
     if (current_size + new_bytes > current_space) {
         new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
                                                // size of array allocated
 //        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
         r = palloc(new_space);
+        if (!r) {
+            /* try again with *exactly* how much we need, in case it just barely fits */
+            r = palloc(current_size + new_bytes);
+            if (!r) {
+                elog(ERROR, "Failed to request %d bytes with palloc()", new_space);
+            }
+        }
         memcpy(r, a, current_size);
         SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
     }
@@ -2161,11 +2170,20 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //											"my_array_concat_transition",
 //											ALLOCSET_DEFAULT_SIZES);
 //			MemoryContextSwitchTo(agg_context);
-            num_new_elems = ARRNELEMS(b);
-            state = expand_if_needed(b, num_new_elems * sizeof(float4));
+//            num_new_elems = ARRNELEMS(b);
+            state = PG_GETARG_ARRAYTYPE_P_COPY(1);
 //            ereport(INFO, (errmsg("read first row")));
-            PG_RETURN_POINTER(state);
+            state->dataoffset = ARR_NBYTES(state);
+            PG_RETURN_ARRAYTYPE_P(state);
         } else {
+            elog(INFO, "agg_state->allBytesAlloc: %lu", agg_context->allBytesAlloc);
+            elog(INFO, "agg_state->allBytesFreed: %lu", agg_context->allBytesFreed);
+            elog(INFO, "agg_state->maxBytesHeld: %lu", agg_context->maxBytesHeld);
+            elog(INFO, "agg_state->localMinHeld: %lu", agg_context->localMinHeld);
+            elog(INFO, "agg_state->type: %lu", agg_context->type);
+            if (agg_context->name) {
+                elog(INFO, "agg_state->name: %s", agg_context->name);
+            }
             num_new_elems = ARRNELEMS(b);
             old_state = state;
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
@@ -2203,7 +2221,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
 //    ereport(INFO, (errmsg("Returning state")));
-    PG_RETURN_POINTER(state);
+    PG_RETURN_ARRAYTYPE_P(state);
 }
 
 //========================== BackPort of postgresql array_agg() function ============
@@ -2275,7 +2293,7 @@ Datum array_agg_array_serialize(PG_FUNCTION_ARGS)
     memcpy(VARDATA_ANY(b), astate, bytea_data_size);
 
     PG_RETURN_BYTEA_P(b);
-};
+}
 
 PG_FUNCTION_INFO_V1(array_agg_array_deserialize);
 Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
@@ -2298,7 +2316,7 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
     elog(INFO, "des astate->ndims: %d", astate->ndims);
     astate->mcontext = CurrentMemoryContext;
     PG_RETURN_POINTER(astate);
-};
+}
 
  /*
   * The following three functions provide essentially the same API as
@@ -2400,8 +2418,9 @@ Datum array_agg_array_deserialize(PG_FUNCTION_ARGS)
 
      if (astate == NULL)
          astate = initArrayResultArr(array_type, InvalidOid, rcontext, true);
-     else
+     else {
          Assert(astate->array_type == array_type);
+     }
 
      oldcontext = MemoryContextSwitchTo(astate->mcontext);
 
