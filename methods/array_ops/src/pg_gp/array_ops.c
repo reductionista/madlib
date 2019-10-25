@@ -13,6 +13,7 @@
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
 #include "access/hash.h"
+#include "executor/execHHashagg.h"
 #include <math.h>
 
 #ifndef NO_PG_MODULE_MAGIC
@@ -2113,7 +2114,10 @@ General_Array_to_Cumulative_Array(
 
 #define ARR_NBYTES(a)  (ARR_OVERHEAD_NONULLS(ARR_NDIM(a)) + sizeof(float4) * ARRNELEMS(a))
 
-ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
+// Use mpool to allocate if we have one (HashAgg), otherwise just use ordinary palloc
+#define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
+
+ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
 {
     unsigned long data_size, current_size;
     unsigned long ndims, current_space, new_space;
@@ -2128,16 +2132,19 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
         new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
                                                // size of array allocated
 //        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
-        r = palloc(new_space);
+        r = ALLOCATE_MEM(mpool, new_space);
         if (!r) {
             /* try again with *exactly* how much we need, in case it just barely fits */
-            r = palloc(current_size + new_bytes);
+            elog(ERROR, "Failed to request %lu bytes with palloc(), trying %lu bytes instead", new_space, current_size + new_bytes);
+            new_space = current_size + new_bytes;
+            r = ALLOCATE_MEM(mpool, new_space);
             if (!r) {
-                elog(ERROR, "Failed to request %d bytes with palloc()", new_space);
+                elog(ERROR, "Failed to request %lu bytes with palloc()", current_size + new_bytes);
             }
         }
         memcpy(r, a, current_size);
         SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
+        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
     }
 
     return r;
@@ -2151,12 +2158,14 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     // args 0 = state
     // args 1 = array of float4's
     // args 2 = max rows on this segment (okay if larger, just can't be smaller)
-    ArrayType  *state, *old_state;
+    ArrayType  *state;
     float4 *b_data;
     float4 *state_data;
+    AggState *agg_state;
     unsigned long num_current_elems, num_new_elems, num_elements;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
     MemoryContext agg_context;
+    MPool *mpool = NULL;
 
     if (PG_ARGISNULL(0)) {
         state = NULL;
@@ -2171,30 +2180,26 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //											ALLOCSET_DEFAULT_SIZES);
 //			MemoryContextSwitchTo(agg_context);
 //            num_new_elems = ARRNELEMS(b);
-            state = PG_GETARG_ARRAYTYPE_P_COPY(1);
+
+//            state = PG_GETARG_ARRAYTYPE_P_COPY(1);
+            state = PG_GETARG_ARRAYTYPE_P(1);
+
+
 //            ereport(INFO, (errmsg("read first row")));
-            state->dataoffset = ARR_NBYTES(state);
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
-            elog(INFO, "agg_state->allBytesAlloc: %lu", agg_context->allBytesAlloc);
-            elog(INFO, "agg_state->allBytesFreed: %lu", agg_context->allBytesFreed);
-            elog(INFO, "agg_state->maxBytesHeld: %lu", agg_context->maxBytesHeld);
-            elog(INFO, "agg_state->localMinHeld: %lu", agg_context->localMinHeld);
-            elog(INFO, "agg_state->type: %lu", agg_context->type);
-            if (agg_context->name) {
-                elog(INFO, "agg_state->name: %s", agg_context->name);
+//            elog(INFO, "agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
+//            elog(INFO, "my_agg_array_transition called with state pointer = %p", state);
+            if (((uint32 *)state)[0] == 0x7F7F7F7F) {
+                elog(ERROR, "received freed memory block as input param in agg_array_concat_transition!");
+            }
+            agg_state = (AggState *) fcinfo->context;
+            if (agg_state->hhashtable) {
+                mpool = agg_state->hhashtable->group_buf;
             }
             num_new_elems = ARRNELEMS(b);
-            old_state = state;
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
-            state = expand_if_needed(state, num_new_elems * sizeof(float4));
-            if (state == NULL) {
-                ereport(ERROR, (errmsg("repalloc returned NULL pointer!")));
-            } else if (state == old_state) {
-//                ereport(INFO, (errmsg("repalloc returned same pointer")));
-            } else {
-//                ereport(INFO, (errmsg("repalloc returned new pointer")));
-            }
+            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
          }
     } else {
         num_new_elems = ARRNELEMS(b);
@@ -2220,7 +2225,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-//    ereport(INFO, (errmsg("Returning state")));
+//    ereport(INFO, (errmsg("Returning state pointer 0x%x", state)));
     PG_RETURN_ARRAYTYPE_P(state);
 }
 
@@ -2253,32 +2258,32 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
 // TODO:  we should not be defining this here... must be some other
  ///  way to get definition that's in mpool.h of gpdb source
-struct MPool
-{
-    MemoryContextData *parent;
-    MemoryContextData *context;
-
-    /*
-     * Total number of bytes are allocated through the memory
-     * context.
-     */
-    uint64 total_bytes_allocated;
-
-    /* How many bytes are used by the caller. */
-    uint64 bytes_used;
-
-    /*
-     * When a new allocation request arrives, and the current block
-     * does not have enough space for this request, we waste those
-     * several bytes at the end of the block. This variable stores
-     * total number of these wasted bytes.
-     */
-    uint64 bytes_wasted;
-
-    /* The latest allocated block of available space. */
-    void *start;
-    void *end;
-};
+//struct MPool
+//{
+//    MemoryContextData *parent;
+//    MemoryContextData *context;
+//
+//    /*
+//     * Total number of bytes are allocated through the memory
+//     * context.
+//     */
+//    uint64 total_bytes_allocated;
+//
+//    /* How many bytes are used by the caller. */
+//    uint64 bytes_used;
+//
+//    /*
+//     * When a new allocation request arrives, and the current block
+//     * does not have enough space for this request, we waste those
+//     * several bytes at the end of the block. This variable stores
+//     * total number of these wasted bytes.
+//     */
+//    uint64 bytes_wasted;
+//
+//    /* The latest allocated block of available space. */
+//    void *start;
+//    void *end;
+//};
 
 PG_FUNCTION_INFO_V1(array_agg_array_serialize);
 Datum array_agg_array_serialize(PG_FUNCTION_ARGS)
