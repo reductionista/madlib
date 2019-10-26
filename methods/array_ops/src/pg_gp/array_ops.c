@@ -2117,36 +2117,52 @@ General_Array_to_Cumulative_Array(
 // Use mpool to allocate if we have one (HashAgg), otherwise just use ordinary palloc
 #define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
 
-ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
+//ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
+//{
+//    unsigned long data_size, current_size;
+//    unsigned long ndims, current_space, new_space;
+//    ArrayType *r=a;
+//
+//    data_size = sizeof(float4) * ARRNELEMS(a);
+//    ndims = ARR_NDIM(a);
+//    current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
+//    current_space = VARSIZE(a);
+//
+//    if (current_size + new_bytes > current_space) {
+//        new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
+//                                               // size of array allocated
+////        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
+//        r = ALLOCATE_MEM(mpool, new_space);
+//        if (!r) {
+//            /* try again with *exactly* how much we need, in case it just barely fits */
+//            elog(ERROR, "Failed to request %lu bytes with palloc(), trying %lu bytes instead", new_space, current_size + new_bytes);
+//            new_space = current_size + new_bytes;
+//            r = ALLOCATE_MEM(mpool, new_space);
+//            if (!r) {
+//                elog(ERROR, "Failed to request %lu bytes with palloc()", current_size + new_bytes);
+//            }
+//        }
+//        memcpy(r, a, current_size);
+//        SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
+//        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
+//    }
+//
+//    return r;
+//}
+
+ArrayType *expand_if_needed(ArrayType *a, unsigned long current_space, unsigned long new_bytes)
 {
-    unsigned long data_size, current_size;
-    unsigned long ndims, current_space, new_space;
-    ArrayType *r=a;
+    ArrayType *r=NULL;
+    unsigned long current_space = VARSIZE(a);
+    unsigned long new_space = current_space + new_bytes;
 
-    data_size = sizeof(float4) * ARRNELEMS(a);
-    ndims = ARR_NDIM(a);
-    current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
-    current_space = VARSIZE(a);
-
-    if (current_size + new_bytes > current_space) {
-        new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
-                                               // size of array allocated
-//        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
-        r = ALLOCATE_MEM(mpool, new_space);
-        if (!r) {
-            /* try again with *exactly* how much we need, in case it just barely fits */
-            elog(ERROR, "Failed to request %lu bytes with palloc(), trying %lu bytes instead", new_space, current_size + new_bytes);
-            new_space = current_size + new_bytes;
-            r = ALLOCATE_MEM(mpool, new_space);
-            if (!r) {
-                elog(ERROR, "Failed to request %lu bytes with palloc()", current_size + new_bytes);
-            }
-        }
-        memcpy(r, a, current_size);
-        SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
-        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
+    r = palloc(new_space);
+    if (!r) {
+        elog(ERROR, "Failed to request %lu bytes with palloc()", new_space);
     }
 
+    memcpy(r, a, current_space);
+    SET_VARSIZE(r, new_space);
     return r;
 }
 
@@ -2165,6 +2181,8 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     unsigned long num_current_elems, num_new_elems, num_elements;
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
     MemoryContext agg_context;
+    unsigned long current_space;
+    MemoryContextContainer mem_manager;
     MPool *mpool = NULL;
 
     if (PG_ARGISNULL(0)) {
@@ -2199,7 +2217,25 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             }
             num_new_elems = ARRNELEMS(b);
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
-            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
+//            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
+
+            mgr = (AllocSet) agg_state->mem_manager->manager;
+            for (chunk = mgr->allocList; chunk = chunk->next_chunk; chunk != NULL) {
+                if (AllocChunkGetPointer(chunk) == state) {
+                    break;
+                }
+            }
+
+            if (!chunk) {
+                elog(INFO, "state not found in allocation list");
+                current_space = VARSIZE(state);
+            } else {
+                elog(INFO, "state passed with chunk size %lu", chunk->size);
+                elog(INFO, "(requested size = %lu)", chunk->requested_size);
+                current_space = chunk->size;
+            }
+
+            state = expand_if_needed(state, current_space, num_new_elems * sizeof(float4));
          }
     } else {
         num_new_elems = ARRNELEMS(b);
