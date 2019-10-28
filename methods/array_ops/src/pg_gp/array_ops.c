@@ -2150,10 +2150,36 @@ General_Array_to_Cumulative_Array(
 //    return r;
 //}
 
+struct MPool
+{
+    MemoryContextData *parent;
+    MemoryContextData *context;
+
+    /*
+     * Total number of bytes are allocated through the memory
+     * context.
+     */
+    uint64 total_bytes_allocated;
+
+    /* How many bytes are used by the caller. */
+    uint64 bytes_used;
+
+    /*
+     * When a new allocation request arrives, and the current block
+     * does not have enough space for this request, we waste those
+     * several bytes at the end of the block. This variable stores
+     * total number of these wasted bytes.
+     */
+    uint64 bytes_wasted;
+
+    /* The latest allocated block of available space. */
+    void *start;
+    void *end;
+};
+
 ArrayType *expand_if_needed(ArrayType *a, unsigned long current_space, unsigned long new_bytes)
 {
     ArrayType *r=NULL;
-    unsigned long current_space = VARSIZE(a);
     unsigned long new_space = current_space + new_bytes;
 
     r = palloc(new_space);
@@ -2182,8 +2208,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
     MemoryContext agg_context;
     unsigned long current_space;
-    MemoryContextContainer mem_manager;
+    MemoryManagerContainer mem_manager;
+    StandardChunkHeader *chunk;
     MPool *mpool = NULL;
+    AllocSet mgr;
 
     if (PG_ARGISNULL(0)) {
         state = NULL;
@@ -2219,9 +2247,9 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
 //            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
 
-            mgr = (AllocSet) agg_state->mem_manager->manager;
-            for (chunk = mgr->allocList; chunk = chunk->next_chunk; chunk != NULL) {
-                if (AllocChunkGetPointer(chunk) == state) {
+            mgr = (AllocSet)((MPool *) agg_state->mem_manager.manager)->context;
+            for (chunk = (StandardChunkHeader *) mgr->allocList; chunk != NULL; chunk = chunk->next_chunk) {
+                if (((char *)chunk + STANDARDCHUNKHEADERSIZE) == (char *)state) {
                     break;
                 }
             }
@@ -2233,6 +2261,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
                 elog(INFO, "state passed with chunk size %lu", chunk->size);
                 elog(INFO, "(requested size = %lu)", chunk->requested_size);
                 current_space = chunk->size;
+//                *(volatile int *)NULL;
             }
 
             state = expand_if_needed(state, current_space, num_new_elems * sizeof(float4));
