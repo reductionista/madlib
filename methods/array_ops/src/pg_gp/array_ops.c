@@ -2144,7 +2144,7 @@ ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
         }
         memcpy(r, a, current_size);
         SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
-        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
+//        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
     }
 
     return r;
