@@ -308,6 +308,12 @@ class InputDataPreprocessorDL(object):
                        normalizing_const_colname=NORMALIZING_CONST_COLNAME,
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
+        explain_query = "EXPLAIN " + query
+        plpy.info(plp.execute("SHOW optimizer"))
+        plpy.info(plp.execute("SHOW gp_autostats_mode_in_functions"))
+        plpy.info(plp.execute("SHOW gp_enable_multiphase_agg"))
+        res = plpy.execute(explain_query)
+        plpy.info(res)
         plpy.execute(query)
 
     def _validate_args(self):
