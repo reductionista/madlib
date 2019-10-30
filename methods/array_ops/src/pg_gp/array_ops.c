@@ -2613,8 +2613,7 @@ static inline void swap_states(ArrayBuildStateArr **state1, ArrayBuildStateArr *
 ArrayBuildStateArr *
 mergeArrayResultArr(ArrayBuildStateArr *state1,
                  ArrayBuildStateArr *state2,
-                 Oid array_type,
-                 MemoryContext rcontext)
+                 Oid array_type)
 {
     MemoryContext oldcontext;
     int         i;
@@ -2709,8 +2708,7 @@ array_agg_array_mergefn(PG_FUNCTION_ARGS)
     // do actual merge only when neither state is null
     state1 = mergeArrayResultArr(state1,
                                  state2,
-                                 arg1_typeid,
-                                 aggcontext);
+                                 arg1_typeid);
 
     /*
      * The transition type for array_agg() is declared to be "internal", which
