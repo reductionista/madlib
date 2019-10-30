@@ -2179,16 +2179,20 @@ struct MPool
 
 ArrayType *expand_if_needed(ArrayType *a, unsigned long current_space, unsigned long new_bytes)
 {
-    ArrayType *r=NULL;
-    unsigned long new_space = current_space + new_bytes;
+    ArrayType *r=a;
+    unsigned long current_size = VARSIZE(a);
+    unsigned long new_size = current_size + new_bytes;
 
-    r = palloc(new_space);
-    if (!r) {
-        elog(ERROR, "Failed to request %lu bytes with palloc()", new_space);
+    if (new_size > current_space) {
+        r = palloc(new_size);
+        if (!r) {
+            elog(ERROR, "Failed to request %lu bytes with palloc()", new_size);
+        }
+        memcpy(r, a, current_space);
     }
 
-    memcpy(r, a, current_space);
-    SET_VARSIZE(r, new_space);
+    SET_VARSIZE(r, new_size);
+//    *(volatile int *)NULL;
     return r;
 }
 
@@ -2258,8 +2262,8 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
                 elog(INFO, "state not found in allocation list");
                 current_space = VARSIZE(state);
             } else {
-                elog(INFO, "state passed with chunk size %lu", chunk->size);
-                elog(INFO, "(requested size = %lu)", chunk->requested_size);
+//                elog(INFO, "state passed with chunk size %lu", chunk->size);
+//                elog(INFO, "(requested size = %lu)", chunk->requested_size);
                 current_space = chunk->size;
 //                *(volatile int *)NULL;
             }
