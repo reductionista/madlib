@@ -2188,6 +2188,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long current_space, unsigned 
         if (!r) {
             elog(ERROR, "Failed to request %lu bytes with palloc()", new_size);
         }
+        elog(INFO, "Copying %d bytes to new memory area of size %d", current_space, new_size);
         memcpy(r, a, current_space);
     }
 
@@ -2213,7 +2214,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     MemoryContext agg_context;
     unsigned long current_space;
     MemoryManagerContainer mem_manager;
-    StandardChunkHeader *chunk;
+    StandardChunkHeader *chunk = NULL;
     MPool *mpool = NULL;
     AllocSet mgr;
 
@@ -2252,14 +2253,17 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
 
             mgr = (AllocSet)((MPool *) agg_state->mem_manager.manager)->context;
-            for (chunk = (StandardChunkHeader *) mgr->allocList; chunk != NULL; chunk = chunk->next_chunk) {
-                if (((char *)chunk + STANDARDCHUNKHEADERSIZE) == (char *)state) {
-                    break;
+
+            if (mpool) {
+                for (chunk = (StandardChunkHeader *) mgr->allocList; chunk != NULL; chunk = chunk->next_chunk) {
+                    if (((char *)chunk + STANDARDCHUNKHEADERSIZE) == (char *)state) {
+                        break;
+                    }
                 }
             }
 
             if (!chunk) {
-                elog(INFO, "state not found in allocation list");
+//                elog(INFO, "state not found in allocation list");
                 current_space = VARSIZE(state);
             } else {
 //                elog(INFO, "state passed with chunk size %lu", chunk->size);
@@ -2276,6 +2280,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     }
 
     if (ARR_NDIM(state) != ARR_NDIM(b)) {
+        elog(INFO, "ARR_NDIM(state) = %d, ARR_NDIM(b) = %d", ARR_NDIM(state), ARR_NDIM(b));
         ereport(ERROR, (errmsg("All arrays must have the same number of dimensions")));
     }
 
@@ -2294,7 +2299,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-//    ereport(INFO, (errmsg("Returning state pointer 0x%x", state)));
+    elog(INFO, "Returning state pointer 0x%x with NDIMS=%d", state, ARR_NDIM(state));
     PG_RETURN_ARRAYTYPE_P(state);
 }
 
