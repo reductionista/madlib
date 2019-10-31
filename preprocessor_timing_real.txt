@@ -1,0 +1,7 @@
+
+normalize & one-hot-encode:
+   ~ 10s ?
+
+minibatch & redistribute:
+
+Time: 771897.933 ms ~ 12s
