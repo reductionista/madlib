@@ -530,6 +530,14 @@ AS 'MODULE_PATHNAME', 'array_scalar_mult'
 LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
+/** 
+ * REAL case of array_scalar_mult(runs on segments)
+ */
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_scalar_mult(x REAL[], k REAL) RETURNS REAL[]
+AS 'MODULE_PATHNAME', 'array_scalar_mult'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
 /**
  * @brief This function takes an array as the input and executes element-wise addition by the scalar provided as the second argument, returning the resulting array. It requires that all the values are NON-NULL. Return type is the same as the input type.
  * @param x Array x
