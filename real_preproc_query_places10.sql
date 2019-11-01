@@ -1,11 +1,10 @@
---        set optimizer=off;
---        set gp_enable_multiphase_agg=off;
+        set optimizer=off;
+        set gp_enable_multiphase_agg=off;
 --        set gp_autostats_mode_in_functions='ON_NO_STATS';
 
             CREATE TABLE __madlib_temp_normalized_debug_nostats__ AS
-            SELECT madlib.array_scalar_mult(
-                x::REAL[],
-                (1/1.0)::REAL) AS x_norm,
+            SELECT CASE WHEN 1.0=1.0 THEN x::REAL[] ELSE madlib.array_scalar_mult(
+                x::REAL[], (1/1.0)::REAL) END AS x_norm,
                 ARRAY[(y) IS NOT DISTINCT FROM 'airfield', (y) IS NOT DISTINCT FROM 'airplane_cabin', (y) IS NOT DISTINCT FROM 'airport_terminal', (y) IS NOT DISTINCT FROM 'alcove', (y) IS NOT DISTINCT FROM 'alley', (y) IS NOT DISTINCT FROM 'amphitheater', (y) IS NOT DISTINCT FROM 'amusement_arcade', (y) IS NOT DISTINCT FROM 'amusement_park', (y) IS NOT DISTINCT FROM 'apartment_building-outdoor', (y) IS NOT DISTINCT FROM 'aquarium']::INTEGER[]::SMALLINT[] AS y,
                 row_number() over() AS row_id
             FROM places10_train ORDER BY RANDOM();
@@ -20,7 +19,8 @@
                     FROM __madlib_temp_series__debug__
                     GROUP BY gp_segment_id;
 
-            CREATE TABLE places10_train_realagg_out AS
+--EXPLAIN
+CREATE TABLE places10_train_realagg_out AS
             SELECT __dist_key__ ,
                    madlib.convert_array_to_bytea(independent_var) AS independent_var,
                    madlib.convert_array_to_bytea(dependent_var) AS dependent_var,

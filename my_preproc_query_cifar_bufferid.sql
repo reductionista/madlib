@@ -1,6 +1,4 @@
-SET gp_autostats_mode_in_functions='ON_NO_STATS';
-SET gp_autostats_mode='ON_NO_STATS';
-
+EXPLAIN
 CREATE TABLE __madlib_temp_normalized__buffer_id_debug__ AS
             SELECT madlib.array_scalar_mult(
                 x::REAL[],
@@ -23,7 +21,8 @@ CREATE TABLE __madlib_temp_normalized__buffer_id_debug__ AS
 
 SET optimizer=off;
 SET gp_enable_multiphase_agg=off;
-            CREATE TABLE cifar_demo_train_myagg_out AS
+EXPLAIN
+CREATE TABLE cifar_demo_train_myagg_out AS
             SELECT __dist_key__ ,
                    madlib.convert_array_to_bytea(independent_var) AS independent_var,
                    madlib.convert_array_to_bytea(dependent_var) AS dependent_var,
