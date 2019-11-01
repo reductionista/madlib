@@ -2117,7 +2117,7 @@ General_Array_to_Cumulative_Array(
 // Use mpool to allocate if we have one (HashAgg), otherwise just use ordinary palloc
 #define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
 
-ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
+ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
 {
     unsigned long data_size, current_size;
     unsigned long ndims, current_space, new_space;
@@ -2132,12 +2132,12 @@ ArrayType *expand_if_needed(MPool *mpool, ArrayType *a, unsigned long new_bytes)
         new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
                                                // size of array allocated
 //        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
-        r = ALLOCATE_MEM(mpool, new_space);
+        r = palloc(new_space);
         if (!r) {
             /* try again with *exactly* how much we need, in case it just barely fits */
             elog(ERROR, "Failed to request %lu bytes with palloc(), trying %lu bytes instead", new_space, current_size + new_bytes);
             new_space = current_size + new_bytes;
-            r = ALLOCATE_MEM(mpool, new_space);
+            r = palloc(new_space);
             if (!r) {
                 elog(ERROR, "Failed to request %lu bytes with palloc()", current_size + new_bytes);
             }
@@ -2209,7 +2209,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             }
             num_new_elems = ARRNELEMS(b);
     //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
-            state = expand_if_needed(mpool, state, num_new_elems * sizeof(float4));
+            state = expand_if_needed(state, num_new_elems * sizeof(float4));
          }
     } else {
         num_new_elems = ARRNELEMS(b);
