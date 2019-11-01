@@ -2158,12 +2158,22 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     // args 0 = state
     // args 1 = array of float4's
     // args 2 = max rows on this segment (okay if larger, just can't be smaller)
-    ArrayType  *state;
+    ArrayType *state;
     float4 *b_data;
     float4 *state_data;
     AggState *agg_state;
     unsigned long num_current_elems, num_new_elems, num_elements;
+
+    if (PG_ARGISNULL(1)) {
+        if PG_ARGISNULL(0) {
+            PG_RETURN_NULL();
+        } else {
+            PG_RETURN_ARRAYTYPE_P(PG_GETARG_ARRAYTYPE_P(0));
+        }
+    }
+
     ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
+    Assert((Pointer) b == PG_GETARG_POINTER(1));
     MemoryContext agg_context;
     MPool *mpool = NULL;
 
@@ -2184,10 +2194,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 //            state = PG_GETARG_ARRAYTYPE_P_COPY(1);
             state = PG_GETARG_ARRAYTYPE_P(1);
 
-
 //            ereport(INFO, (errmsg("read first row")));
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
+            Assert((Pointer) state == PG_GETARG_POINTER(0));
 //            elog(INFO, "agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
 //            elog(INFO, "my_agg_array_transition called with state pointer = %p", state);
             if (((uint32 *)state)[0] == 0x7F7F7F7F) {
