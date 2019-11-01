@@ -1,8 +1,5 @@
-        set optimizer=off;
-        set gp_enable_multiphase_agg=off;
-        set gp_autostats_mode_in_functions='ON_NO_STATS';
-
-            CREATE TABLE __madlib_temp_normalized__debug__ AS
+--EXPLAIN
+CREATE TABLE __madlib_temp_normalized__debug__ AS
             SELECT madlib.array_scalar_mult(
                 x::REAL[],
                 (1/1.0)::REAL) AS x_norm,
@@ -19,8 +16,12 @@
                     SELECT gp_segment_id AS id, min(__dist_key__) AS __dist_key__
                     FROM __madlib_temp_series__debug__
                     GROUP BY gp_segment_id;
-
-            CREATE TABLE places10_train_myagg_out AS
+                    
+        set optimizer=off;
+        set gp_enable_multiphase_agg=off;
+ 
+--EXPLAIN
+CREATE TABLE places10_train_myagg_out AS
             SELECT __dist_key__ ,
                    madlib.convert_array_to_bytea(independent_var) AS independent_var,
                    madlib.convert_array_to_bytea(dependent_var) AS dependent_var,
