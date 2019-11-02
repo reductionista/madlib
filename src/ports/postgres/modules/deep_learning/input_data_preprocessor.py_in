@@ -181,11 +181,18 @@ class InputDataPreprocessorDL(object):
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
         order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+#        scalar_mult_sql = """
+#            CREATE TEMP TABLE {norm_tbl} AS
+#            SELECT {self.schema_madlib}.array_scalar_mult(
+#                {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+#                (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
+#                {one_hot_dep_var_array_expr} AS y,
+#                row_number() over() AS row_id
+#            FROM {self.source_table} {order_by_clause}
+#            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         scalar_mult_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
-            SELECT {self.schema_madlib}.array_scalar_mult(
-                {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
+            SELECT {self.independent_varname}::{FLOAT32_SQL_TYPE}[] AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 row_number() over() AS row_id
             FROM {self.source_table} {order_by_clause}
@@ -268,6 +275,13 @@ class InputDataPreprocessorDL(object):
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
+        explain_query = "EXPLAIN " + sql
+        plpy.execute("SET optimizer=off")
+        plpy.execute("SET gp_enable_multiphase_agg=off")
+        plpy.info(plpy.execute("SHOW optimizer"))
+        plpy.info(plpy.execute("SHOW gp_enable_multiphase_agg"))
+        res = plpy.execute(explain_query)
+        plpy.info(res)
         plpy.execute(sql)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
@@ -308,12 +322,6 @@ class InputDataPreprocessorDL(object):
                        normalizing_const_colname=NORMALIZING_CONST_COLNAME,
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        explain_query = "EXPLAIN " + query
-        plpy.info(plp.execute("SHOW optimizer"))
-        plpy.info(plp.execute("SHOW gp_autostats_mode_in_functions"))
-        plpy.info(plp.execute("SHOW gp_enable_multiphase_agg"))
-        res = plpy.execute(explain_query)
-        plpy.info(res)
         plpy.execute(query)
 
     def _validate_args(self):
