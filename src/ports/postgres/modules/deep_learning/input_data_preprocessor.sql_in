@@ -882,17 +882,21 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
 ) RETURNS REAL[] AS
     'MODULE_PATHNAME', 'my_array_concat_transition'
 LANGUAGE C IMMUTABLE
-SET optimizer=off
-SET gp_enable_multiphase_agg=off
-SET gp_autostats_mode_in_functions to 'ON_NO_STATS'
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_merge(
+    state1      REAL[],
+    state2      REAL[]
+) RETURNS REAL[] AS
+    'MODULE_PATHNAME', 'my_array_concat_merge'
+LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER);
 CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[]) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
---   PREFUNC = array_cat
-   PREFUNC = MADLIB_SCHEMA.my_array_concat_transition
+   PREFUNC = MADLIB_SCHEMA.my_array_concat_merge
 );
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);

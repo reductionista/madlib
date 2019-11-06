@@ -2120,7 +2120,8 @@ General_Array_to_Cumulative_Array(
 ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
 {
     unsigned long data_size, current_size;
-    unsigned long ndims, current_space, new_space;
+    unsigned long current_space, new_space;
+    int ndims;
     ArrayType *r=a;
 
     data_size = sizeof(float4) * ARRNELEMS(a);
@@ -2162,12 +2163,15 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     float4 *b_data;
     float4 *state_data;
     AggState *agg_state;
-    unsigned long num_current_elems, num_new_elems, num_elements;
+    int num_current_elems, num_new_elems, num_elements;
+    HashAggTable *hashtable;
 
     if (PG_ARGISNULL(1)) {
         if PG_ARGISNULL(0) {
+            elog(INFO, "Returning NULL from merge function (both args were NULL)");
             PG_RETURN_NULL();
         } else {
+            elog(INFO, "Returning first arg from merge function (second arg was NULL)");
             PG_RETURN_ARRAYTYPE_P(PG_GETARG_ARRAYTYPE_P(0));
         }
     }
@@ -2205,10 +2209,21 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             }
             agg_state = (AggState *) fcinfo->context;
             if (agg_state->hhashtable) {
-                mpool = agg_state->hhashtable->group_buf;
+                hashtable = agg_state->hhashtable;
+                mpool = hashtable->group_buf;
+                if (mpool) {
+                    elog(INFO, "max_mem = %f, total mpool bytes allocated = %lu, mpool bytes used = %lu, hashtable metadata bytes = %f", hashtable->max_mem, mpool_total_bytes_allocated(mpool), mpool_bytes_used(mpool), hashtable->mem_for_metadata);
+                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+                } else {
+                    elog(INFO, "max_mem = %f", hashtable->max_mem);
+                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+                    elog(ERROR, "NULL mpool in transition function!");
+                }
+            } else {
+                elog(INFO, "No hashtable in transition function!");
             }
+
             num_new_elems = ARRNELEMS(b);
-    //            state = repalloc(state, nbytes + num_new_elems*(sizeof(float4)));
             state = expand_if_needed(state, num_new_elems * sizeof(float4));
          }
     } else {
@@ -2236,6 +2251,106 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
 //    ereport(INFO, (errmsg("Returning state pointer 0x%x", state)));
+    PG_RETURN_ARRAYTYPE_P(state);
+}
+
+
+//==== merge func ====
+
+ArrayType *expand_if_needed_merge(ArrayType *a, unsigned long new_bytes)
+{
+    unsigned long data_size, current_size;
+    unsigned long ndims, current_space, new_space;
+    ArrayType *r=a;
+
+    current_space = VARSIZE(a);
+
+    data_size = sizeof(float4) * ARRNELEMS(a);
+    ndims = ARR_NDIM(a);
+    current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
+
+    new_space = current_size + new_bytes;
+
+    if (current_space == new_space) {
+        elog(INFO, "No size adjustment needed in merge function (%lu = %lu)", current_space, new_space);
+        return a;
+    }
+
+    r = palloc(new_space);
+    if (!r) {
+        elog(ERROR, "Failed to request %lu bytes with palloc()", current_size + new_bytes);
+    }
+
+    memcpy(r, a, current_size);
+    SET_VARSIZE(r, new_space);
+
+    return r;
+}
+
+PG_FUNCTION_INFO_V1(my_array_concat_merge);
+Datum my_array_concat_merge(PG_FUNCTION_ARGS)
+{
+    ArrayType *state;
+    float4 *b_data;
+    float4 *state_data;
+    AggState *agg_state;
+    int num_current_elems, num_new_elems, num_elements;
+
+    if (PG_ARGISNULL(1)) {
+        if PG_ARGISNULL(0) {
+            elog(INFO, "Returning NULL from merge function (both args were NULL)");
+            PG_RETURN_NULL();
+        } else {
+            elog(INFO, "Returning first arg from merge function (second arg was NULL)");
+            PG_RETURN_ARRAYTYPE_P(PG_GETARG_ARRAYTYPE_P(0));
+        }
+    }
+
+    ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
+    Assert((Pointer) b == PG_GETARG_POINTER(1));
+    MemoryContext agg_context;
+    MPool *mpool = NULL;
+
+    if (PG_ARGISNULL(0)) {
+        state = NULL;
+    } else {
+        state = PG_GETARG_ARRAYTYPE_P(0);
+    }
+
+    if (AggCheckCallContext(fcinfo, &agg_context)) {
+        if (!state) {
+            state = PG_GETARG_ARRAYTYPE_P(1);
+            PG_RETURN_ARRAYTYPE_P(state);
+        } else {
+            Assert((Pointer) state == PG_GETARG_POINTER(0));
+            if (((uint32 *)state)[0] == 0x7F7F7F7F) {
+                elog(ERROR, "received freed memory block as input param in agg_array_concat_transition!");
+            }
+            agg_state = (AggState *) fcinfo->context;
+            if (agg_state->hhashtable) {
+                mpool = agg_state->hhashtable->group_buf;
+            }
+            num_new_elems = ARRNELEMS(b);
+            state = expand_if_needed_merge(state, num_new_elems * sizeof(float4));
+         }
+    } else {
+        ereport(ERROR, (errmsg("non-agg context!")));
+    }
+
+    if (ARR_NDIM(state) != ARR_NDIM(b)) {
+        ereport(ERROR, (errmsg("All arrays must have the same number of dimensions")));
+    }
+
+    num_current_elems = ARRNELEMS(state);
+
+    state_data = (float4 *) ARR_DATA_PTR(state);
+    b_data = (float4 *) ARR_DATA_PTR(b);
+
+    num_elements = num_current_elems + num_new_elems;
+    memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
+
+    ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
+
     PG_RETURN_ARRAYTYPE_P(state);
 }
 
