@@ -904,10 +904,10 @@ CREATE AGGREGATE MADLIB_SCHEMA.array_agg_backport(REAL[]) (
     DESERIALFUNC = MADLIB_SCHEMA.array_agg_backport_deserialize
 ); -- PARALLEL SAFE;
 
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
-    state       REAL[],
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_bytea_array_concat_transition(
+    state       BYTEA, 
     x           REAL[]
-) RETURNS REAL[] AS
+) RETURNS BYTEA AS
     'MODULE_PATHNAME', 'my_array_concat_transition'
 LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
@@ -918,13 +918,36 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_merge(
 ) RETURNS REAL[] AS
     'MODULE_PATHNAME', 'my_array_concat_merge'
 LANGUAGE C IMMUTABLE
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_bytea_array_concat_transition(
+    state       BYTEA,
+    x           REAL[]
+) RETURNS BYTEA AS
+    'MODULE_PATHNAME', 'my_array_concat_transition'
+LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
 
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[], INTEGER);
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_bytea_array_concat_merge(
+    state1      BYTEA,
+    state2      BYTEA
+) RETURNS BYTEA AS
+    'MODULE_PATHNAME', 'my_array_concat_transition'
+LANGUAGE C IMMUTABLE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_agg_array_concat(REAL[]);
 CREATE AGGREGATE MADLIB_SCHEMA.my_agg_array_concat(REAL[]) (
    SFUNC = MADLIB_SCHEMA.my_array_concat_transition,
    STYPE = REAL[],
+--   STYPE = BYTEA,
    PREFUNC = MADLIB_SCHEMA.my_array_concat_merge
+);
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.my_bytea_agg_array_concat(REAL[]);
+CREATE AGGREGATE MADLIB_SCHEMA.my_bytea_agg_array_concat(REAL[]) (
+   SFUNC = MADLIB_SCHEMA.my_bytea_array_concat_transition,
+   STYPE = BYTEA,
+   PREFUNC = MADLIB_SCHEMA.my_bytea_array_concat_merge
 );
 
 DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.real_agg_array_concat(REAL[]);
