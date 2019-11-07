@@ -2168,10 +2168,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
     if (PG_ARGISNULL(1)) {
         if PG_ARGISNULL(0) {
-            elog(INFO, "Returning NULL from merge function (both args were NULL)");
+            elog(INFO, "Returning NULL from transition function (both args were NULL)");
             PG_RETURN_NULL();
         } else {
-            elog(INFO, "Returning first arg from merge function (second arg was NULL)");
+            elog(INFO, "Returning first arg from transition function (second arg was NULL)");
             PG_RETURN_ARRAYTYPE_P(PG_GETARG_ARRAYTYPE_P(0));
         }
     }
@@ -2295,6 +2295,9 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
     float4 *state_data;
     AggState *agg_state;
     int num_current_elems, num_new_elems, num_elements;
+    HashAggTable *hashtable;
+
+    elog(INFO, "In merge functoin.");
 
     if (PG_ARGISNULL(1)) {
         if PG_ARGISNULL(0) {
@@ -2320,6 +2323,7 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
     if (AggCheckCallContext(fcinfo, &agg_context)) {
         if (!state) {
             state = PG_GETARG_ARRAYTYPE_P(1);
+            elog(INFO, "Merge called with NULL , %d , returning %d", ARR_DIMS(state)[0], ARR_DIMS(state)[0]);
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
             Assert((Pointer) state == PG_GETARG_POINTER(0));
@@ -2328,9 +2332,21 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
             }
             agg_state = (AggState *) fcinfo->context;
             if (agg_state->hhashtable) {
-                mpool = agg_state->hhashtable->group_buf;
+                hashtable = agg_state->hhashtable;
+                mpool = hashtable->group_buf;
+                if (mpool) {
+                    elog(INFO, "max_mem = %f, total mpool bytes allocated = %lu, mpool bytes used = %lu, hashtable metadata bytes = %f", hashtable->max_mem, mpool_total_bytes_allocated(mpool), mpool_bytes_used(mpool), hashtable->mem_for_metadata);
+                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+                } else {
+                    elog(INFO, "max_mem = %f", hashtable->max_mem);
+                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+                    elog(ERROR, "NULL mpool in merge function!");
+                }
+            } else {
+                elog(INFO, "No hashtable in merge function!");
             }
-            num_new_elems = ARRNELEMS(b);
+
+   num_new_elems = ARRNELEMS(b);
             state = expand_if_needed_merge(state, num_new_elems * sizeof(float4));
          }
     } else {
@@ -2350,6 +2366,9 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
+
+    elog(INFO, "Returning from merge function:  appending %d = %d + %d", ARR_DIMS(state)[0],
+            ARR_DIMS(state)[0] - ARR_DIMS(b)[0],  ARR_DIMS(b)[0]);
 
     PG_RETURN_ARRAYTYPE_P(state);
 }
