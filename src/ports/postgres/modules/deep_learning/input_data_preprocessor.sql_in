@@ -876,10 +876,10 @@ CREATE AGGREGATE MADLIB_SCHEMA.array_agg_backport(REAL[]) (
     DESERIALFUNC = MADLIB_SCHEMA.array_agg_backport_deserialize
 ); -- PARALLEL SAFE;
 
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_bytea_array_concat_transition(
-    state       BYTEA, 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.my_array_concat_transition(
+    state       REAL[],
     x           REAL[]
-) RETURNS BYTEA AS
+) RETURNS REAL[] AS
     'MODULE_PATHNAME', 'my_array_concat_transition'
 LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
