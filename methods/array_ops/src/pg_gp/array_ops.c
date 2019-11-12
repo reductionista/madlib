@@ -2151,7 +2151,9 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
     return r;
 }
 
+
 // ----------------------------------------------------------------------
+#define IS_HASHAGG(aggstate) (((Agg *) (aggstate)->ss.ps.plan)->aggstrategy == AGG_HASHED)
 
 PG_FUNCTION_INFO_V1(my_array_concat_transition);
 Datum my_array_concat_transition(PG_FUNCTION_ARGS)
@@ -2189,40 +2191,61 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
     if (AggCheckCallContext(fcinfo, &agg_context)) {
         if (!state) { // first row
-//			new_context = AllocSetContextCreate(agg_context,
-//											"my_array_concat_transition",
-//											ALLOCSET_DEFAULT_SIZES);
-//			MemoryContextSwitchTo(agg_context);
-//            num_new_elems = ARRNELEMS(b);
-
-//            state = PG_GETARG_ARRAYTYPE_P_COPY(1);
             state = PG_GETARG_ARRAYTYPE_P(1);
+            elog(INFO, "First row of new Group: agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
+            agg_state = (AggState *) fcinfo->context;
 
-//            ereport(INFO, (errmsg("read first row")));
+            if (IS_HASHAGG(agg_state)) {
+                if (agg_state->hhashtable) {
+                    hashtable = agg_state->hhashtable;
+                    mpool = hashtable->group_buf;
+                    if (hashtable->is_spilling) {
+                        elog(INFO, "hashtable->is_spilling = true");
+                    } else {
+                        elog(INFO, "hashtable->is_spilling = false");
+                    }
+                    if (mpool) {
+                        elog(INFO, "First row of New Group:  max_mem = %f MB, total mpool bytes allocated = %lu MB, mpool bytes used = %lu MB, hashtable metadata bytes = %f MB", hashtable->max_mem / 1024 / 1024 , mpool_total_bytes_allocated(mpool) / 1024 / 1024, mpool_bytes_used(mpool) / 1024 / 1024, hashtable->mem_for_metadata / 1024 / 1024);
+                    } else {
+                        elog(INFO, "First row, hashtable but no mpool");
+                    }
+                }
+            } else {
+                elog(INFO, "First row, but not HashAgg");
+            }
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
             Assert((Pointer) state == PG_GETARG_POINTER(0));
-//            elog(INFO, "agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
-//            elog(INFO, "my_agg_array_transition called with state pointer = %p", state);
+            elog(INFO, "agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
             if (((uint32 *)state)[0] == 0x7F7F7F7F) {
                 elog(ERROR, "received freed memory block as input param in agg_array_concat_transition!");
             }
             agg_state = (AggState *) fcinfo->context;
-            if (agg_state->hhashtable) {
-                hashtable = agg_state->hhashtable;
-                mpool = hashtable->group_buf;
-                if (mpool) {
-                    elog(INFO, "max_mem = %f, total mpool bytes allocated = %lu, mpool bytes used = %lu, hashtable metadata bytes = %f", hashtable->max_mem, mpool_total_bytes_allocated(mpool), mpool_bytes_used(mpool), hashtable->mem_for_metadata);
-                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+            if (IS_HASHAGG(agg_state)) {
+                if (agg_state->hhashtable) {
+                    hashtable = agg_state->hhashtable;
+                    mpool = hashtable->group_buf;
+                    if (hashtable->is_spilling) {
+                        elog(INFO, "hashtable->is_spilling = true");
+                    } else {
+                        elog(INFO, "hashtable->is_spilling = false");
+                    }
+                    if (mpool) {
+                        elog(INFO, "max_mem = %f MB, total mpool bytes allocated = %lu MB, mpool bytes used = %lu MB, hashtable metadata bytes = %f MB", hashtable->max_mem / 1024 / 1024 , mpool_total_bytes_allocated(mpool) / 1024 / 1024, mpool_bytes_used(mpool) / 1024 / 1024, hashtable->mem_for_metadata / 1024 / 1024);
+                    } else {
+                        elog(INFO, "max_mem = %f", hashtable->max_mem);
+                        elog(ERROR, "NULL mpool in transition function!");
+                    }
                 } else {
-                    elog(INFO, "max_mem = %f", hashtable->max_mem);
-                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
-                    elog(ERROR, "NULL mpool in transition function!");
+                    elog(INFO, "No hashtable in transition function!");
                 }
-            } else {
-                elog(INFO, "No hashtable in transition function!");
-            }
 
+            } else {
+                elog(INFO, "Not HashAgg--either GroupAgg (aka Sort) or no GROUP BY involved");
+                if (agg_state->hashtable) {
+                    elog(ERROR, "what?!  why is there a hashtable but no HashAgg?");
+                }
+            }
             num_new_elems = ARRNELEMS(b);
             state = expand_if_needed(state, num_new_elems * sizeof(float4));
          }
@@ -2246,11 +2269,10 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     num_elements = num_current_elems + num_new_elems;
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
 
-//    ereport(INFO, (errmsg("state dims = [%d, %d, %d]", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2])));
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-//    ereport(INFO, (errmsg("Returning state pointer 0x%x", state)));
+    elog(INFO, "Returning transValue from transition fn with dims [%d, %d, %d], allocated size %f MB", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2], (float8) VARSIZE(state) / 1024.0 / 1024.0);
     PG_RETURN_ARRAYTYPE_P(state);
 }
 
@@ -2271,7 +2293,7 @@ ArrayType *expand_if_needed_merge(ArrayType *a, unsigned long new_bytes)
 
     new_space = current_size + new_bytes;
 
-    if (current_space == new_space) {
+    if (current_space >= new_space) {
         elog(INFO, "No size adjustment needed in merge function (%lu = %lu)", current_space, new_space);
         return a;
     }
@@ -2296,8 +2318,6 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
     AggState *agg_state;
     int num_current_elems, num_new_elems, num_elements;
     HashAggTable *hashtable;
-
-    elog(INFO, "In merge functoin.");
 
     if (PG_ARGISNULL(1)) {
         if PG_ARGISNULL(0) {
@@ -2327,17 +2347,18 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
                 hashtable = agg_state->hhashtable;
                 mpool = hashtable->group_buf;
                 if (mpool) {
-                    elog(INFO, "(merge) max_mem = %f, total mpool bytes allocated = %lu, mpool bytes used = %lu, hashtable metadata bytes = %f", hashtable->max_mem, mpool_total_bytes_allocated(mpool), mpool_bytes_used(mpool), hashtable->mem_for_metadata);
-//                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
+                    elog(INFO, "merge called with NULL first arg:  max_mem = %f MB, total mpool bytes allocated = %lu MB, mpool bytes used = %lu MB, hashtable metadata bytes = %f MB", hashtable->max_mem / 1024 / 1024 , mpool_total_bytes_allocated(mpool) / 1024 / 1024, mpool_bytes_used(mpool) / 1024 / 1024, hashtable->mem_for_metadata / 1024 / 1024);
                 } else {
                     elog(INFO, "max_mem = %f", hashtable->max_mem);
-                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
                     elog(ERROR, "NULL mpool in merge function!");
                 }
             } else {
-                elog(INFO, "No hashtable in merge function!");
+                if (IS_HASHAGG(agg_state)) {
+                    elog(INFO, "No hashtable in HashAgg merge function!");
+                }
             }
 
+            elog(INFO, "First merge chunk: agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
             state = PG_GETARG_ARRAYTYPE_P(1);
             elog(INFO, "merge called with NULL , %d , returning %d", ARR_DIMS(state)[0], ARR_DIMS(state)[0]);
             PG_RETURN_ARRAYTYPE_P(state);
@@ -2351,7 +2372,7 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
                 hashtable = agg_state->hhashtable;
                 mpool = hashtable->group_buf;
                 if (mpool) {
-                    elog(INFO, "(merge) max_mem = %f, total mpool bytes allocated = %lu, mpool bytes used = %lu, hashtable metadata bytes = %f", hashtable->max_mem, mpool_total_bytes_allocated(mpool), mpool_bytes_used(mpool), hashtable->mem_for_metadata);
+                    elog(INFO, "(merge):  max_mem = %f MB, total mpool bytes allocated = %lu MB, mpool bytes used = %lu MB, hashtable metadata bytes = %f MB", hashtable->max_mem / 1024 / 1024 , mpool_total_bytes_allocated(mpool) / 1024 / 1024, mpool_bytes_used(mpool) / 1024 / 1024, hashtable->mem_for_metadata / 1024 / 1024);
 //                    elog(INFO, "mem_wanted = %f", hashtable->mem_wanted);
                 } else {
                     elog(INFO, "max_mem = %f", hashtable->max_mem);
@@ -2359,10 +2380,13 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
                     elog(ERROR, "NULL mpool in merge function!");
                 }
             } else {
-                elog(INFO, "No hashtable in merge function!");
+                if (IS_HASHAGG(agg_state)) {
+                    elog(INFO, "No hashtable in merge function!");
+                }
+                elog(INFO, "(merge) agg_context->allBytesAlloc: %lu", agg_context->allBytesAlloc);
             }
 
-   num_new_elems = ARRNELEMS(b);
+            num_new_elems = ARRNELEMS(b);
             state = expand_if_needed_merge(state, num_new_elems * sizeof(float4));
          }
     } else {
@@ -2383,9 +2407,8 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 
-    elog(INFO, "Returning from merge function:  appending %d = %d + %d", ARR_DIMS(state)[0],
-            ARR_DIMS(state)[0] - ARR_DIMS(b)[0],  ARR_DIMS(b)[0]);
-
+    elog(INFO, "Returning %f MB transValue from merge function (%d = %d + %d)", (float8) VARSIZE(state) / 1024.0 / 1024.0, 
+            ARR_DIMS(state)[0], ARR_DIMS(state)[0] - ARR_DIMS(b)[0],  ARR_DIMS(b)[0]);
     PG_RETURN_ARRAYTYPE_P(state);
 }
 
