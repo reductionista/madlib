@@ -2118,11 +2118,11 @@ General_Array_to_Cumulative_Array(
 #define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
 
 
-#define VMEM_PROTECT_LIMIT ((unsigned long)(1024*1024*1024))
-#define MEMORY_PER_SEGMENT ((unsigned long)(0.95 * VMEM_PROTECT_LIMIT))
+#define VMEM_PROTECT_LIMIT ((float)(3.0*1024*1024*1024))
+#define MEMORY_PER_SEGMENT ((float)(0.95 * VMEM_PROTECT_LIMIT))
    // leave 5% for other slice, just in case
 
-ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long total_allocated)
+ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long total_allocated, unsigned long max_statement_mem)
 {
     unsigned long data_size, current_size;
     unsigned long current_space, new_space;
@@ -2134,20 +2134,30 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
     current_space = VARSIZE(a);
 
-    if (current_size + new_bytes > current_space) {
+    elog(INFO, "current_size = %lu, current_space = %lu, data_size = %lu", current_size, current_space, data_size);
+
+    if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
         new_space = 2*current_space;  // If already full, double
-        if (total_allocated + new_space > MEMORY_PER_SEGMENT) {
+        if (max_statement_mem > 0 && max_statement_mem > new_space) {
+            new_space = max_statement_mem/2;
+        }
+
+        if ((float) total_allocated + (float) new_space > MEMORY_PER_SEGMENT) {
             // Nothing else we can do; even if we return less than double it will still be
             //  double as soon as copyDatumWithMemManager allocates... or will it?
-            elog(INFO, "total allocated %lu is now over %lu... hitting vmem_protect seems ineviable; maybe stop and give error message here?", total_allocated, MEMORY_PER_SEGMENT);
-            new_space = MEMORY_PER_SEGMENT - total_allocated;
-            if (new_space < new_bytes) {
+            elog(INFO, "add %f MB to total allocated %f MB would go over limit=%f MB... hitting vmem_protect seems ineviable; maybe stop and give error message here?", new_space / 1024.0, total_allocated / 1024.0, MEMORY_PER_SEGMENT / 1024.0);
+            if (total_allocated < MEMORY_PER_SEGMENT) {
+                new_space = MEMORY_PER_SEGMENT - total_allocated;
+            } else {
+                new_space = total_allocated;
+            }
+            if (new_space < (current_size + new_bytes)) {
                 elog(ERROR, "Cannot allocate more space without going over vmem_protect_limit... but whatever, here goes!!");
                 new_space = current_size + new_bytes;
             }
         }
                                                // size of array allocated
-//        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
+        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
         r = palloc(new_space);
         if (!r) {
             /* try again with *exactly* how much we need, in case it just barely fits */
@@ -2181,6 +2191,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     float4 *state_data;
     AggState *agg_state;
     int num_current_elems, num_new_elems, num_elements;
+    unsigned long max_statement_mem=0;
     HashAggTable *hashtable;
 
     if (PG_ARGISNULL(1)) {
@@ -2239,6 +2250,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             if (IS_HASHAGG(agg_state)) {
                 if (agg_state->hhashtable) {
                     hashtable = agg_state->hhashtable;
+                    max_statement_mem = hashtable->max_mem;
                     mpool = hashtable->group_buf;
                     if (hashtable->is_spilling) {
                         elog(INFO, "hashtable->is_spilling = true");
@@ -2262,7 +2274,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
                 }
             }
             num_new_elems = ARRNELEMS(b);
-            state = expand_if_needed(state, num_new_elems * sizeof(float4), agg_context->allBytesAlloc);
+            state = expand_if_needed(state, num_new_elems * sizeof(float4), agg_context->allBytesAlloc, max_statement_mem);
          }
     } else {
         num_new_elems = ARRNELEMS(b);
@@ -2333,6 +2345,7 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
     AggState *agg_state;
     int num_current_elems, num_new_elems, num_elements;
     HashAggTable *hashtable;
+    unsigned long max_statement_mem = 1*1024*1024*1024;
 
     if (PG_ARGISNULL(1)) {
         if PG_ARGISNULL(0) {
@@ -2385,6 +2398,7 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
             agg_state = (AggState *) fcinfo->context;
             if (agg_state->hhashtable) {
                 hashtable = agg_state->hhashtable;
+                max_statement_mem = hashtable->max_mem;
                 mpool = hashtable->group_buf;
                 if (mpool) {
                     elog(INFO, "(merge):  max_mem = %f MB, total mpool bytes allocated = %lu MB, mpool bytes used = %lu MB, hashtable metadata bytes = %f MB", hashtable->max_mem / 1024 / 1024 , mpool_total_bytes_allocated(mpool) / 1024 / 1024, mpool_bytes_used(mpool) / 1024 / 1024, hashtable->mem_for_metadata / 1024 / 1024);
@@ -2402,7 +2416,7 @@ Datum my_array_concat_merge(PG_FUNCTION_ARGS)
             }
 
             num_new_elems = ARRNELEMS(b);
-            state = expand_if_needed_merge(state, num_new_elems * sizeof(float4));
+            state = expand_if_needed(state, num_new_elems * sizeof(float4), agg_context->allBytesAlloc, max_statement_mem);
          }
     } else {
         ereport(ERROR, (errmsg("non-agg context!")));
