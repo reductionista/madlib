@@ -2117,7 +2117,12 @@ General_Array_to_Cumulative_Array(
 // Use mpool to allocate if we have one (HashAgg), otherwise just use ordinary palloc
 #define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
 
-ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
+
+#define VMEM_PROTECT_LIMIT ((unsigned long)(1024*1024*1024))
+#define MEMORY_PER_SEGMENT ((unsigned long)(0.95 * VMEM_PROTECT_LIMIT))
+   // leave 5% for other slice, just in case
+
+ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long total_allocated)
 {
     unsigned long data_size, current_size;
     unsigned long current_space, new_space;
@@ -2130,7 +2135,17 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes)
     current_space = VARSIZE(a);
 
     if (current_size + new_bytes > current_space) {
-        new_space = 2*current_space - ARR_OVERHEAD_NONULLS(ndims);  // If already half full, double
+        new_space = 2*current_space;  // If already full, double
+        if (total_allocated + new_space > MEMORY_PER_SEGMENT) {
+            // Nothing else we can do; even if we return less than double it will still be
+            //  double as soon as copyDatumWithMemManager allocates... or will it?
+            elog(INFO, "total allocated %lu is now over %lu... hitting vmem_protect seems ineviable; maybe stop and give error message here?", total_allocated, MEMORY_PER_SEGMENT);
+            new_space = MEMORY_PER_SEGMENT - total_allocated;
+            if (new_space < new_bytes) {
+                elog(ERROR, "Cannot allocate more space without going over vmem_protect_limit... but whatever, here goes!!");
+                new_space = current_size + new_bytes;
+            }
+        }
                                                // size of array allocated
 //        ereport(INFO, (errmsg("current size is %lu, so expanding space from %lu to %lu.", current_size, current_space, new_space)));
         r = palloc(new_space);
@@ -2247,7 +2262,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
                 }
             }
             num_new_elems = ARRNELEMS(b);
-            state = expand_if_needed(state, num_new_elems * sizeof(float4));
+            state = expand_if_needed(state, num_new_elems * sizeof(float4), agg_context->allBytesAlloc);
          }
     } else {
         num_new_elems = ARRNELEMS(b);
