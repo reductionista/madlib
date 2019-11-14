@@ -2142,7 +2142,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     elog(INFO, "current_size = %lu, current_space = %lu, data_size = %lu", current_size, current_space, data_size);
 
     if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
-        new_space = 2*current_space;  // If already full, double
+        new_space = 2 * current_space;  // If already full, double
 
         if (max_statement_mem > 0 && max_statement_mem > new_space) {
             new_space = max_statement_mem;
@@ -2158,7 +2158,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
                 new_space = total_allocated;
             }
             if (new_space < (current_size + new_bytes)) {
-                elog(ERROR, "Cannot allocate more space without going over vmem_protect_limit... but whatever, here goes!!");
+                elog(INFO, "Cannot allocate more space without going over vmem_protect_limit... but whatever, here goes!!");
                 new_space = current_size + new_bytes;
             }
         }
@@ -2304,6 +2304,12 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
+//    ARR_DIMS(state)[1] = ARR_DIMS(state)[2] = ARR_DIMS(state)[3] = 1;
+
+//    int ndims = ARR_NDIM(state);
+//    elog(INFO, "NONULLS overhead = %d", ARR_OVERHEAD_NONULLS(ndims));
+//    ARR_DIMS(state)[0] = (VARSIZE(state) - ARR_OVERHEAD_NONULLS(ndims) ) / 4;
+//    SET_VARSIZE(state, ARR_DIMS(state)[0]*4 + ARR_OVERHEAD_NONULLS(ndims));
 
     elog(INFO, "Returning transValue from transition fn with dims [%d, %d, %d], allocated size %f MB", ARR_DIMS(state)[0], ARR_DIMS(state)[1],ARR_DIMS(state)[2], (float8) VARSIZE(state) / 1024.0 / 1024.0);
     PG_RETURN_ARRAYTYPE_P(state);
@@ -3030,4 +3036,31 @@ array_agg_array_finalfn(PG_FUNCTION_ARGS)
     result = makeArrayResultArr(state, CurrentMemoryContext, false);
 
     PG_RETURN_DATUM(result);
+}
+
+
+// ================
+
+PG_FUNCTION_INFO_V1(array_to_bytea);
+Datum array_to_bytea(PG_FUNCTION_ARGS)
+{
+    ArrayType *a = (ArrayType *) PG_GETARG_ARRAYTYPE_P(0);
+    unsigned long bytea_data_size = VARSIZE(a) + 8;
+    int arrayTypeHeaderSize;
+        
+        // ARR_OVERHEAD_NONULLS(ARR_NDIM(a));
+
+    bytea *b = palloc(bytea_data_size);
+
+    char *data = ARR_DATA_PTR(a);
+    arrayTypeHeaderSize = ((char *)data - (char *)a);
+    ((int *)data)[0] = VARSIZE(a);
+
+    SET_VARSIZE(b, VARSIZE(a) + 8);
+
+    memcpy(b, a, arrayTypeHeaderSize);
+
+    memcpy(VARDATA_ANY(b), data + 8, bytea_data_size - arrayTypeHeaderSize);
+
+    PG_RETURN_BYTEA_P(b);
 }
