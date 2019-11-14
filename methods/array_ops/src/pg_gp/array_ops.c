@@ -2119,7 +2119,7 @@ General_Array_to_Cumulative_Array(
 #define ALLOCATE_MEM(mpool, size) mpool ? mpool_alloc(mpool, size) : palloc(size)
 
 
-#define VMEM_PROTECT_LIMIT ((float)(RedZoneHandler_GetRedZoneLimitMB()))
+#define VMEM_PROTECT_LIMIT ((float)(RedZoneHandler_GetRedZoneLimitMB())*1024*1024)
 #define MEMORY_PER_SEGMENT ((float)(0.95 * VMEM_PROTECT_LIMIT))
    // leave 5% for other slice, just in case
 
@@ -2144,14 +2144,14 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
         new_space = 2 * current_space;  // If already full, double
 
-        if (max_statement_mem > 0 && max_statement_mem > new_space) {
-            new_space = max_statement_mem;
-        }
+//        if (max_statement_mem > 0 && max_statement_mem > new_space) {
+//            new_space = max_statement_mem;
+//        }
 
         if ((float) total_allocated + (float) new_space > MEMORY_PER_SEGMENT) {
             // Nothing else we can do; even if we return less than double it will still be
             //  double as soon as copyDatumWithMemManager allocates... or will it?
-            elog(INFO, "add %f MB to total allocated %f MB would go over limit=%f MB... hitting vmem_protect seems ineviable; maybe stop and give error message here?", new_space / 1024.0, total_allocated / 1024.0, MEMORY_PER_SEGMENT / 1024.0);
+            elog(INFO, "add %f MB to total allocated %f MB would go over limit=%f MB... hitting vmem_protect seems ineviable; maybe stop and give error message here?", new_space / 1024.0 / 1024, total_allocated / 1024.0 / 1024, MEMORY_PER_SEGMENT / 1024.0 / 1024);
             if (total_allocated < MEMORY_PER_SEGMENT) {
                 new_space = MEMORY_PER_SEGMENT - total_allocated;
             } else {
@@ -3038,11 +3038,18 @@ array_agg_array_finalfn(PG_FUNCTION_ARGS)
     PG_RETURN_DATUM(result);
 }
 
-
 // ================
 
 PG_FUNCTION_INFO_V1(array_to_bytea);
 Datum array_to_bytea(PG_FUNCTION_ARGS)
+{
+    bytea *b = PG_GETARG_BYTEA_P_COPY(0);
+    PG_RETURN_BYTEA_P(b);
+}
+// ================
+
+PG_FUNCTION_INFO_V1(array_to_bytea_plus8);
+Datum array_to_bytea_plus8(PG_FUNCTION_ARGS)
 {
     ArrayType *a = (ArrayType *) PG_GETARG_ARRAYTYPE_P(0);
     unsigned long bytea_data_size = VARSIZE(a) + 8;
