@@ -2260,7 +2260,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             } else {
                 elog(INFO, "First row, but not HashAgg");
             }
-
+*/
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
 /*
@@ -3116,6 +3116,7 @@ gpdb_array_cat(PG_FUNCTION_ARGS)
 				ndims,
 				nitems,
 				ndatabytes,
+                nallocbytes,
 				nbytes;
 	int		   *dims1,
 			   *lbs1,
@@ -3216,8 +3217,11 @@ gpdb_array_cat(PG_FUNCTION_ARGS)
 	bitmap2 = ARR_NULLBITMAP(v2);
 	nitems1 = ArrayGetNItems(ndims1, dims1);
 	nitems2 = ArrayGetNItems(ndims2, dims2);
-	ndatabytes1 = ARR_SIZE(v1) - ARR_DATA_OFFSET(v1);
-	ndatabytes2 = ARR_SIZE(v2) - ARR_DATA_OFFSET(v2);
+//	ndatabytes1 = ARR_SIZE(v1) - ARR_DATA_OFFSET(v1);
+//	ndatabytes2 = ARR_SIZE(v2) - ARR_DATA_OFFSET(v2);
+
+ndatabytes1 = sizeof(float4) * nitems1;
+ndatabytes2 = sizeof(float4) * nitems2;
 
 	if (ndims1 == ndims2)
 	{
@@ -3315,15 +3319,29 @@ gpdb_array_cat(PG_FUNCTION_ARGS)
 		dataoffset = 0;			/* marker for no null bitmap */
 		nbytes = ndatabytes + ARR_OVERHEAD_NONULLS(ndims);
 	}
-	result = (ArrayType *) palloc0(nbytes);
-	SET_VARSIZE(result, nbytes);
+
+    if (nbytes > ARR_SIZE(v1)) {  // if current space isn't big enough, allocate twice the size of the larger two arrays being merged
+        nallocbytes = ((ARR_SIZE(v1) > ARR_SIZE(v2)) ? (2 * ARR_SIZE(v1)) : (2 * ARR_SIZE(v2)));
+	    result = (ArrayType *) palloc0(nallocbytes);
+	    SET_VARSIZE(result, nallocbytes);
+    } else {
+        nallocbytes = ARR_SIZE(v1);  // just reuse v1 buffer, don't allocate any more
+        result = v1;
+    }
+
 	result->ndim = ndims;
 	result->dataoffset = dataoffset;
 	result->elemtype = element_type;
-	memcpy(ARR_DIMS(result), dims, ndims * sizeof(int));
-	memcpy(ARR_LBOUND(result), lbs, ndims * sizeof(int));
+    if (result != v1) {
+    	memcpy(ARR_DIMS(result), dims, ndims * sizeof(int));
+	    memcpy(ARR_LBOUND(result), lbs, ndims * sizeof(int));
+    } else {
+        ARR_DIMS(result)[0] = dims[0];  // change outer dim, keep inner dims same as dims1
+    }
 	/* data area is arg1 then arg2 */
-	memcpy(ARR_DATA_PTR(result), dat1, ndatabytes1);
+    if (result != v1) {
+    	memcpy(ARR_DATA_PTR(result), dat1, ndatabytes1);
+    }
 	memcpy(ARR_DATA_PTR(result) + ndatabytes1, dat2, ndatabytes2);
 	/* handle the null bitmap if needed */
 	if (ARR_HASNULL(result))
