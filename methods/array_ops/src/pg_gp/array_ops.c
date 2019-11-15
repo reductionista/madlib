@@ -2151,13 +2151,15 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
 
     elog(INFO, "current_size = %lu, current_space = %lu, data_size = %lu", current_size, current_space, data_size);
 
-    if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
-        new_space = 2 * current_space;  // If already full, double
+//    if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
+//        new_space = 2 * current_space;  // If already full, double
+        new_space =  current_space + new_bytes;
 
 //        if (max_statement_mem > 0 && max_statement_mem > new_space) {
 //            new_space = max_statement_mem;
 //        }
 
+    /*
         if ((float) total_allocated + (float) new_space > MEMORY_PER_SEGMENT) {
             // Nothing else we can do; even if we return less than double it will still be
             //  double as soon as copyDatumWithMemManager allocates... or will it?
@@ -2172,6 +2174,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
                 new_space = current_size + new_bytes;
             }
         }
+    */
                                                // size of array allocated
         ereport(INFO, (errmsg("current size is %lu, newbytes %lu, so expanding space from %lu to %lu.", current_size, new_bytes, current_space, new_space)));
         r = palloc(new_space);
@@ -2187,7 +2190,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
         memcpy(r, a, current_size);
         SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
 //        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
-    }
+//    }
 
     return r;
 }
@@ -2203,6 +2206,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     // args 1 = array of float4's
     // args 2 = max rows on this segment (okay if larger, just can't be smaller)
     ArrayType *state;
+    ArrayType *b;
     float4 *b_data;
     float4 *state_data;
     AggState *agg_state;
@@ -2220,7 +2224,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
         }
     }
 
-    ArrayType *b = PG_GETARG_ARRAYTYPE_P(1);
+    b = PG_GETARG_ARRAYTYPE_P(1);
     Assert((Pointer) b == PG_GETARG_POINTER(1));
     MemoryContext agg_context;
     MPool *mpool = NULL;
@@ -2234,6 +2238,7 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
     if (AggCheckCallContext(fcinfo, &agg_context)) {
         if (!state) { // first row
             state = PG_GETARG_ARRAYTYPE_P(1);
+/*
             elog(INFO, "First row of new Group: agg_context->allBytesAlloc: %f MB ( - %f MB freed )", agg_context->allBytesAlloc * 1.0/ 1024 / 1024, agg_context->allBytesFreed * 1.0 / 1024 / 1024);
             agg_state = (AggState *) fcinfo->context;
 
@@ -3052,8 +3057,11 @@ array_agg_array_finalfn(PG_FUNCTION_ARGS)
 PG_FUNCTION_INFO_V1(array_to_bytea);
 Datum array_to_bytea(PG_FUNCTION_ARGS)
 {
-    bytea *b = PG_GETARG_BYTEA_P_COPY(0);
-    PG_RETURN_BYTEA_P(b);
+    bytea *a = PG_GETARG_BYTEA_P_COPY(0);
+
+    elog(INFO, "%x is short? %d is external? %d is compressed? %d is extended? %d", a->vl_len_, VARATT_IS_SHORT(a), VARATT_IS_COMPRESSED(a), VARATT_IS_EXTERNAL(a), VARATT_IS_EXTENDED(a));
+
+    PG_RETURN_BYTEA_P(a);
 }
 // ================
 
@@ -3061,7 +3069,7 @@ PG_FUNCTION_INFO_V1(array_to_bytea_plus8);
 Datum array_to_bytea_plus8(PG_FUNCTION_ARGS)
 {
     ArrayType *a = (ArrayType *) PG_GETARG_ARRAYTYPE_P(0);
-    unsigned long bytea_data_size = VARSIZE(a) + 8;
+    unsigned long bytea_data_size = VARSIZE_ANY(a) + 8;
     int arrayTypeHeaderSize;
         
         // ARR_OVERHEAD_NONULLS(ARR_NDIM(a));
