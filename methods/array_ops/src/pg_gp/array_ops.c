@@ -2133,7 +2133,14 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     data_size = sizeof(float4) * ARRNELEMS(a);
     ndims = ARR_NDIM(a);
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
-    current_space = VARSIZE(a);
+
+    Assert(data_size == ARR_SIZE(a) - ARR_DATA_OFFSET(a));
+
+    Assert(VARATT_IS_4B(a));
+
+    elog(INFO, "%x is short? %d is external? %d is compressed? %d is extended? %d", a->vl_len_, VARATT_IS_SHORT(a), VARATT_IS_COMPRESSED(a), VARATT_IS_EXTERNAL(a), VARATT_IS_EXTENDED(a));
+//    current_space = VARSIZE(a);
+    current_space = VARSIZE_ANY(a);
 
     elog(INFO, "Current available VMEM = %d MB", VmemTracker_GetAvailableVmemMB());
 
@@ -2245,13 +2252,11 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
             } else {
                 elog(INFO, "First row, but not HashAgg");
             }
+
             PG_RETURN_ARRAYTYPE_P(state);
         } else {
-            Assert((Pointer) state == PG_GETARG_POINTER(0));
+/*
             elog(INFO, "agg_context->allBytesAlloc: %f MB ( - %f MB freed)", agg_context->allBytesAlloc * 1.0 / 1024 / 1024, agg_context->allBytesFreed * 1.0 / 1024 / 1024);
-            if (((uint32 *)state)[0] == 0x7F7F7F7F) {
-                elog(ERROR, "received freed memory block as input param in agg_array_concat_transition!");
-            }
             agg_state = (AggState *) fcinfo->context;
             if (IS_HASHAGG(agg_state)) {
                 if (agg_state->hhashtable) {
@@ -2279,7 +2284,9 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
                     elog(ERROR, "what?!  why is there a hashtable but no HashAgg?");
                 }
             }
+ */
             num_new_elems = ARRNELEMS(b);
+            Assert( num_new_elems * sizeof(float4) == ARR_SIZE(b) - ARR_DATA_OFFSET(b));
             state = expand_if_needed(state, num_new_elems * sizeof(float4), agg_context->allBytesAlloc, max_statement_mem);
          }
     } else {
@@ -2301,7 +2308,6 @@ Datum my_array_concat_transition(PG_FUNCTION_ARGS)
 
     num_elements = num_current_elems + num_new_elems;
     memcpy(state_data + num_current_elems, b_data, num_new_elems * sizeof(float4));
-
 
     ARR_DIMS(state)[0] = ARR_DIMS(state)[0] + ARR_DIMS(b)[0];
 //    ARR_DIMS(state)[1] = ARR_DIMS(state)[2] = ARR_DIMS(state)[3] = 1;
