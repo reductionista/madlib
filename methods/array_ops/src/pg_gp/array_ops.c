@@ -2134,13 +2134,16 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     ndims = ARR_NDIM(a);
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
 
-    Assert(data_size == ARR_SIZE(a) - ARR_DATA_OFFSET(a));
+    if (data_size != ARR_SIZE(a) - ARR_DATA_OFFSET(a)) {
+        elog(ERROR, "ndims = %d, data_size = %d, ARR_SIZE - ARR_DATA_OFF = %d, ARRNELEMS(a) = %d, ARR_OVERHEAD_NONULLS(ndims) = %d",
+                ndims, data_size, ARR_SIZE(a) - ARR_DATA_OFFSET(a), ARRNELEMS(a), ARR_OVERHEAD_NONULLS(ndims));
+    }
 
     Assert(VARATT_IS_4B(a));
 
     elog(INFO, "%x is short? %d is external? %d is compressed? %d is extended? %d", a->vl_len_, VARATT_IS_SHORT(a), VARATT_IS_COMPRESSED(a), VARATT_IS_EXTERNAL(a), VARATT_IS_EXTENDED(a));
 //    current_space = VARSIZE(a);
-    current_space = VARSIZE_ANY(a);
+    current_space = VARSIZE(a);
 
     elog(INFO, "Current available VMEM = %d MB", VmemTracker_GetAvailableVmemMB());
 
