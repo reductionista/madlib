@@ -201,6 +201,7 @@ class InputDataPreprocessorDL(object):
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         plpy.execute(scalar_mult_sql)
+        plpy.info("scalar_mult query: {}".format(scalar_mult_sql))
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -232,6 +233,7 @@ class InputDataPreprocessorDL(object):
                     DISTRIBUTED BY ({dist_key})
                 """.format(**locals())
             plpy.execute(query)
+            plpy.info("gen series query: {}".format(query))
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
             gpu_join_clause = """JOIN {dist_key_tbl} ON 
@@ -243,11 +245,13 @@ class InputDataPreprocessorDL(object):
                 plpy.execute("""
                     SELECT {self.schema_madlib}.gpu_configuration('{gpu_info_table}')
                 """.format(**locals()))
+                plpy.info("SELECT {self.schema_madlib}.gpu_configuration('{gpu_info_table}')".format(**locals()))
                 gpu_query = """
                     SELECT array_agg(DISTINCT(hostname)) as gpu_config 
                     FROM {gpu_info_table}
                 """.format(**locals())
                 gpu_query_result = plpy.execute(gpu_query)[0]['gpu_config']
+                plpy.info(gpu_query)
                 if not gpu_query_result:
                    plpy.error("{self.module_name}: No GPUs configured on hosts.".format(self=self))
 
@@ -260,6 +264,7 @@ class InputDataPreprocessorDL(object):
                     AND hostname=ANY({gpu_config_hostnames})
                 """.format(**locals())
                 segment_ids_result = plpy.execute(get_segment_query)[0]
+                plpy.info(get_segment_query)
                 plpy.execute("DROP TABLE IF EXISTS {0}".format(gpu_info_table))
                 self.gpu_config = "ARRAY{0}".format(segment_ids_result['segment_ids'])
                 num_segments = segment_ids_result['count']
@@ -284,6 +289,7 @@ class InputDataPreprocessorDL(object):
                     ON {self.distribution_rules}.dbid = gp_segment_configuration.dbid
                 """.format(**locals())
                 self.gpu_config = "ARRAY{0}".format(plpy.execute(gpu_query)[0]['gpu_config'])
+                plpy.info("gpu_config query: {}".format(gpu_query))
                 where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
                 num_segments = plpy.execute("SELECT count(*) as count FROM {self.distribution_rules}".format(**locals()))[0]['count']
                 join_clause = gpu_join_clause.format(**locals())
@@ -296,6 +302,7 @@ class InputDataPreprocessorDL(object):
                     GROUP BY gp_segment_id
             """
             plpy.execute(dist_key_query.format(**locals()))
+            plpy.info(dist_key_query.format(**locals()))
 
         # Create the mini-batched output table
         sql = """
@@ -324,13 +331,11 @@ class InputDataPreprocessorDL(object):
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
-        explain_query = "EXPLAIN " + sql
         plpy.execute("SET optimizer=off")
         plpy.execute("SET gp_enable_multiphase_agg=off")
         plpy.info(plpy.execute("SHOW optimizer")[0])
         plpy.info(plpy.execute("SHOW gp_enable_multiphase_agg")[0])
-        res = plpy.execute(explain_query)
-        plpy.info(res[0])
+        plpy.info("Query: {}".format(sql))
         plpy.execute(sql)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
