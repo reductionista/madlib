@@ -309,9 +309,9 @@ class InputDataPreprocessorDL(object):
             FROM
             (
                 SELECT
-                    {self.schema_madlib}.my_agg_array_concat(
+                    {self.schema_madlib}.gpdb_agg_array_concat(
                         ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.my_agg_array_concat(
+                    {self.schema_madlib}.gpdb_agg_array_concat(
                         ARRAY[{norm_tbl}.y]) AS {y},
                     ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id,
                     count(*) AS count
@@ -327,10 +327,10 @@ class InputDataPreprocessorDL(object):
         explain_query = "EXPLAIN " + sql
         plpy.execute("SET optimizer=off")
         plpy.execute("SET gp_enable_multiphase_agg=off")
-        plpy.info(plpy.execute("SHOW optimizer"))
-        plpy.info(plpy.execute("SHOW gp_enable_multiphase_agg"))
+        plpy.info(plpy.execute("SHOW optimizer")[0])
+        plpy.info(plpy.execute("SHOW gp_enable_multiphase_agg")[0])
         res = plpy.execute(explain_query)
-        plpy.info(res)
+        plpy.info(res[0])
         plpy.execute(sql)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table

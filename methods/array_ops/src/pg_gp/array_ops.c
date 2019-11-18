@@ -2135,14 +2135,13 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
     current_size = ARR_OVERHEAD_NONULLS(ndims) + data_size;
 
     if (((uint32)data_size) != (ARR_SIZE(a) - ARR_DATA_OFFSET(a))) {
-        elog(ERROR, "ndims = %d, data_size = %lu, ARR_SIZE - ARR_DATA_OFF = %d, ARRNELEMS(a) = %d, ARR_OVERHEAD_NONULLS(ndims) = %d",
+        elog(ERROR, "ndims = %d, data_size = %lu, ARR_SIZE - ARR_DATA_OFF = %ld, ARRNELEMS(a) = %d, ARR_OVERHEAD_NONULLS(ndims) = %ld",
                 ndims, data_size, ARR_SIZE(a) - ARR_DATA_OFFSET(a), ARRNELEMS(a), ARR_OVERHEAD_NONULLS(ndims));
     }
 
     Assert(VARATT_IS_4B(a));
 
     elog(INFO, "%x is short? %d is external? %d is compressed? %d is extended? %d", a->vl_len_, VARATT_IS_SHORT(a), VARATT_IS_COMPRESSED(a), VARATT_IS_EXTERNAL(a), VARATT_IS_EXTENDED(a));
-//    current_space = VARSIZE(a);
     current_space = VARSIZE(a);
 
     elog(INFO, "Current available VMEM = %d MB", VmemTracker_GetAvailableVmemMB());
@@ -2151,13 +2150,13 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
 
     elog(INFO, "current_size = %lu, current_space = %lu, data_size = %lu", current_size, current_space, data_size);
 
-//    if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
-//        new_space = 2 * current_space;  // If already full, double
-        new_space =  current_space + new_bytes;
+    if (current_size + new_bytes > current_space) {  // never allocate more unless we have to, returning the same pointer if we can is the most important key to having a small memory footprint.
+        new_space = 2 * current_space;  // If already full, double
+//        new_space =  current_space + new_bytes;
 
-//        if (max_statement_mem > 0 && max_statement_mem > new_space) {
-//            new_space = max_statement_mem;
-//        }
+        if (max_statement_mem > 0 && max_statement_mem > new_space) {
+            new_space = max_statement_mem;
+        }
 
     /*
         if ((float) total_allocated + (float) new_space > MEMORY_PER_SEGMENT) {
@@ -2190,7 +2189,7 @@ ArrayType *expand_if_needed(ArrayType *a, unsigned long new_bytes, unsigned long
         memcpy(r, a, current_size);
         SET_VARSIZE(r, new_space);  // important!  postgres will crash at pfree otherwise
 //        elog(INFO, "Moved state memory from %p to %p, new size = %lu", a, r, new_space);
-//    }
+    }
 
     return r;
 }
