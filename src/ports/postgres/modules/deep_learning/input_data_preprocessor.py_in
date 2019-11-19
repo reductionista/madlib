@@ -236,9 +236,11 @@ class InputDataPreprocessorDL(object):
             plpy.info("gen series query: {}".format(query))
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
-            gpu_join_clause = """JOIN {dist_key_tbl} ON 
-                ({self.gpu_config})[b.buffer_id%{num_segments}+1] = {dist_key_tbl}.id
+            gpu_join_clause = """ON ( ({self.gpu_config})[n.buffer_id%{num_segments}+1] = d.gp_segment_id)
+                                    AND ( b.seg_id = d.
                 """
+
+join_clause = """ON ( b.seg_id = d.gp_segment_id) AND (b.slot_id = d.slot_id)"""
 
             if self.distribution_rules == 'gpu_segments':
                 gpu_info_table = unique_string(desp='gpu_info')
@@ -274,7 +276,10 @@ class InputDataPreprocessorDL(object):
             elif self.distribution_rules == 'all_segments':
                 where_clause = ''
                 num_segments = get_seg_number()
-                join_clause = 'JOIN {dist_key_tbl} ON (b.buffer_id%{num_segments})= {dist_key_tbl}.id'.format(**locals())
+                # buffer_id = num_segments x slot+id + gp_segment_id
+                join_clause = """ON ( n.buffer_index % {self.num_segments} = d.gp_segment_id)
+                                    AND (n.buffer_index / {self.num_segments} = d.slot_id)
+                              """.format(**locals())
 
             else:  # Read from a table with dbids to distribute the data
                 input_tbl_valid(self.distribution_rules, self.module_name,
@@ -294,12 +299,19 @@ class InputDataPreprocessorDL(object):
                 num_segments = plpy.execute("SELECT count(*) as count FROM {self.distribution_rules}".format(**locals()))[0]['count']
                 join_clause = gpu_join_clause.format(**locals())
 
+#            dist_key_query = """
+#                    CREATE TEMP TABLE {dist_key_tbl} AS
+#                    SELECT gp_segment_id AS id, min({dist_key}) AS {dist_key}
+#                    FROM {series_tbl}
+#                    {where_clause}
+#                    GROUP BY gp_segment_id
+#            """
             dist_key_query = """
                     CREATE TEMP TABLE {dist_key_tbl} AS
-                    SELECT gp_segment_id AS id, min({dist_key}) AS {dist_key}
+                    SELECT {dist_key} AS buffer_id, ROW_NUMBER OVER(PARTITION BY gp_segment_id) AS slot_id
                     FROM {series_tbl}
                     {where_clause}
-                    GROUP BY gp_segment_id
+                    DISTRIBUTED BY (buffer_id)
             """
             plpy.execute(dist_key_query.format(**locals()))
             plpy.info(dist_key_query.format(**locals()))
@@ -307,8 +319,7 @@ class InputDataPreprocessorDL(object):
         # Create the mini-batched output table
         sql = """
             CREATE TABLE {self.output_table} AS
-            SELECT {dist_key_comma}
-                   {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
+            SELECT {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
                    {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
@@ -320,12 +331,12 @@ class InputDataPreprocessorDL(object):
                         ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                     {self.schema_madlib}.gpdb_agg_array_concat(
                         ARRAY[{norm_tbl}.y]) AS {y},
-                    ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id,
+                    row_id % {self.num_buffers} AS buffer_index
                     count(*) AS count
-                FROM {norm_tbl}
-                GROUP BY buffer_id
+                FROM {norm_tbl} AS n JOIN {dist_key_table} AS d
+                {join_clause}
+                GROUP BY d.buffer_id
             ) b
-            {join_clause}
             {distributed_by_clause}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
