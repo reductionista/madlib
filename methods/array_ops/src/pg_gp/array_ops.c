@@ -3319,7 +3319,7 @@ ndatabytes2 = sizeof(float4) * nitems2;
 		nbytes = ndatabytes + ARR_OVERHEAD_NONULLS(ndims);
 	}
 
-    if (nbytes > ARR_SIZE(v1)) {  // if current space isn't big enough, allocate twice the size of the larger two arrays being merged
+    if (nbytes > ARR_SIZE(v1)) {  // if current space isn't big enough, allocate twice the size of the larger of the two arrays being merged
         nallocbytes = ((ARR_SIZE(v1) > ARR_SIZE(v2)) ? (2 * ARR_SIZE(v1)) : (2 * ARR_SIZE(v2)));
 	    result = (ArrayType *) palloc0(nallocbytes);
 	    SET_VARSIZE(result, nallocbytes);
@@ -3327,6 +3327,8 @@ ndatabytes2 = sizeof(float4) * nitems2;
         nallocbytes = ARR_SIZE(v1);  // just reuse v1 buffer, don't allocate any more
         result = v1;
     }
+
+    Assert(nallocbytes >= nbytes);  // could result in mem corruption if this were not true by this point
 
 	result->ndim = ndims;
 	result->dataoffset = dataoffset;
