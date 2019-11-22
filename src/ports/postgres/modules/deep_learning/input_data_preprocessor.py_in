@@ -73,7 +73,7 @@ class InputDataPreprocessorDL(object):
         ## Validating input args prior to using them in _set_validate_vartypes()
         self._validate_args()
         self._set_validate_vartypes()
-        self.num_of_buffers = self._get_num_buffers()
+        self.num_buffers = self._get_num_buffers()
         self.dependent_levels = None
         # The number of padded zeros to include in 1-hot vector
         self.padding_size = 0
@@ -184,14 +184,14 @@ class InputDataPreprocessorDL(object):
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
         order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
-        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001)
-            rescale_independent_var """{self.schema_madlib}.array_scalar_mult(
-                                       {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                                       (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
-                                    """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
+            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
+                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
+                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
         else:
-            self.normalizing_const = DEFAULT_NORMALIZING
-            mult_clause = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]"
+            self.normalizing_const = DEFAULT_NORMALIZING_CONST
+            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
 
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
@@ -200,7 +200,7 @@ class InputDataPreprocessorDL(object):
             FROM {self.source_table} {order_by_clause}
             """.format(**locals())
         plpy.execute(one_hot_sql)
-        plpy.info("one_hot query: {}".format(scalar_mult_sql))
+        plpy.info("one_hot query: {}".format(one_hot_sql))
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -285,7 +285,7 @@ class InputDataPreprocessorDL(object):
 #                join_clause = """ON ((n.row_id % {self.num_buffers}) % {self.num_segments} = d.gp_segment_id)
 #                                    AND (n.row_id % {self.num_buffers}) / {self.num_segments} = d.slot_id)
 #                              """.format(**locals())
-                join_clause = """ON n.buffer_index = num_segments * d.slot_id + d.gp_segment_id"""
+                join_clause = "ON n.buffer_index = {0} * d.slot_id + d.gp_segment_id".format(num_segments)
 
             else:  # Read from a table with dbids to distribute the data
                 input_tbl_valid(self.distribution_rules, self.module_name,
@@ -333,12 +333,10 @@ class InputDataPreprocessorDL(object):
                     d.buffer_id AS buffer_id,
                     count(*) AS count
                 FROM (
-                    SELECT
-                        (ROW_NUMBER() OVER())::INTEGER % {self.num_buffers} AS buffer_index,
-                        x_norm, y
-                    FROM {norm_tbl} AS n JOIN {dist_key_table} AS d
-                    {join_clause}
-                ) a
+                    SELECT (ROW_NUMBER() OVER())::INTEGER % {self.num_buffers} AS buffer_index,
+                        x_norm, y FROM {norm_tbl}
+                ) n JOIN {dist_key_tbl} d
+                {join_clause}
                 GROUP BY buffer_id
             ) b
             {distributed_by_clause}
