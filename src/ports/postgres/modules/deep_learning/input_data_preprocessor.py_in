@@ -333,7 +333,7 @@ class InputDataPreprocessorDL(object):
                     d.buffer_id AS buffer_id,
                     count(*) AS count
                 FROM (
-                    SELECT (ROW_NUMBER() OVER())::INTEGER % {self.num_buffers} AS buffer_index,
+                    SELECT ROW_NUMBER() OVER() % {self.num_buffers} AS buffer_index,
                         x_norm, y FROM {norm_tbl}
                 ) n JOIN {dist_key_tbl} d
                 {join_clause}
@@ -447,7 +447,7 @@ class InputDataPreprocessorDL(object):
             self.independent_varname)
         self.buffer_size = buffer_size_calculator.calculate_default_buffer_size(
             self.buffer_size, num_rows_in_tbl, indepdent_var_dim)
-        return ceil((1.0 * num_rows_in_tbl) / self.buffer_size)
+        return int(ceil((1.0 * num_rows_in_tbl) / self.buffer_size))
 
 
 class ValidationDataPreprocessorDL(InputDataPreprocessorDL):
