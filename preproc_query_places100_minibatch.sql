@@ -16,11 +16,11 @@ SET enable_hashagg=off;  -- uncomment for GroupAgg (only affects Planner)
                         ARRAY[madlib_places100_normalized.x_norm::REAL[]]) AS independent_var,
                     madlib.real_agg_array_concat(
                         ARRAY[madlib_places100_normalized.y]) AS dependent_var,
-                    floor(madlib_places100_normalized.row_id/381)::smallint AS buffer_id,
-                    -- shouldn't need floor as long as row_id is BIGINT.  We do need if it's NUMERIC
+--                        (madlib_places100_normalized.row_id % 1290)::smallint AS buffer_id,
+                    (madlib_places100_normalized.row_id / 381)::smallint AS buffer_id,
                     count(*) AS count
                 FROM madlib_places100_normalized
                 GROUP BY buffer_id
             ) b
-            JOIN madlib_perm_dist_key ON (b.buffer_id%20)= madlib_perm_dist_key.id
+            JOIN madlib_perm_dist_key ON (b.buffer_id % 20)= madlib_perm_dist_key.id
              DISTRIBUTED BY (__dist_key__)
