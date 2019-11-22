@@ -59,7 +59,7 @@ class InputDataPreprocessorDL(object):
         self.dependent_varname = dependent_varname
         self.independent_varname = independent_varname
         self.buffer_size = buffer_size
-        self.normalizing_const = normalizing_const if normalizing_const is not None else DEFAULT_NORMALIZING_CONST
+        self.normalizing_const = normalizing_const
         self.num_classes = num_classes
         self.distribution_rules = distribution_rules if distribution_rules else DEFAULT_GPU_CONFIG
         self.module_name = module_name
@@ -184,24 +184,23 @@ class InputDataPreprocessorDL(object):
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
         order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
-#        scalar_mult_sql = """
-#            CREATE TEMP TABLE {norm_tbl} AS
-#            SELECT {self.schema_madlib}.array_scalar_mult(
-#                {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-#                (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
-#                {one_hot_dep_var_array_expr} AS y,
-#                row_number() over() AS row_id
-#            FROM {self.source_table} {order_by_clause}
-#            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        scalar_mult_sql = """
+        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001)
+            rescale_independent_var """{self.schema_madlib}.array_scalar_mult(
+                                       {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+                                       (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
+                                    """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        else:
+            self.normalizing_const = DEFAULT_NORMALIZING
+            mult_clause = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]"
+
+        one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
-            SELECT {self.independent_varname}::{FLOAT32_SQL_TYPE}[] AS x_norm,
-                {one_hot_dep_var_array_expr} AS y,
-                row_number() over() AS row_id
+            SELECT {rescale_independent_var} AS x_norm,
+                {one_hot_dep_var_array_expr} AS y
             FROM {self.source_table} {order_by_clause}
-            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        plpy.execute(scalar_mult_sql)
-        plpy.info("scalar_mult query: {}".format(scalar_mult_sql))
+            """.format(**locals())
+        plpy.execute(one_hot_sql)
+        plpy.info("one_hot query: {}".format(scalar_mult_sql))
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -223,6 +222,7 @@ class InputDataPreprocessorDL(object):
             dist_key_comma = ''
         else:
             dist_key = DISTRIBUTION_KEY_COLNAME
+            dist_key_comma = dist_key + ','
             # Create large temp table such that there is atleast 1 row on each segment
             # Using 999999 would distribute data(atleast 1 row on each segment) for
             # a cluster as large as 20000
@@ -234,14 +234,11 @@ class InputDataPreprocessorDL(object):
                 """.format(**locals())
             plpy.execute(query)
             plpy.info("gen series query: {}".format(query))
-            distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
-            dist_key_comma = dist_key + ' ,'
-            gpu_join_clause = """ON ( ({self.gpu_config})[n.buffer_id%{num_segments}+1] = d.gp_segment_id)
-                                    AND ( b.seg_id = d.
-                """
-
-join_clause = """ON ( b.seg_id = d.gp_segment_id) AND (b.slot_id = d.slot_id)"""
-
+            distributed_by_clause= ' DISTRIBUTED BY (buffer_id) '.format(**locals())
+            # TODO: convert this into the non-AND version?
+            gpu_join_clause = """ON ( {self.gpu_config}[n.buffer_index%{num_segments}+1] = d.gp_segment_id
+                                     AND n.buffer_index/{num_segments} = d.slot_id)
+                              """
             if self.distribution_rules == 'gpu_segments':
                 gpu_info_table = unique_string(desp='gpu_info')
                 plpy.execute("""
@@ -276,10 +273,19 @@ join_clause = """ON ( b.seg_id = d.gp_segment_id) AND (b.slot_id = d.slot_id)"""
             elif self.distribution_rules == 'all_segments':
                 where_clause = ''
                 num_segments = get_seg_number()
-                # buffer_id = num_segments x slot+id + gp_segment_id
-                join_clause = """ON ( n.buffer_index % {self.num_segments} = d.gp_segment_id)
-                                    AND (n.buffer_index / {self.num_segments} = d.slot_id)
-                              """.format(**locals())
+                # Two ways of doing the same join:
+                #
+                #     n.buffer_index = n.row_id % num_buffers
+                #                    = num_segments * d.slot_id + d.gp_segment_id
+                # or
+                #
+                #                   buffer_index / num_segments = d.slot_id
+                #               AND buffer_index % num_segments = d.gp_segment_id
+                #
+#                join_clause = """ON ((n.row_id % {self.num_buffers}) % {self.num_segments} = d.gp_segment_id)
+#                                    AND (n.row_id % {self.num_buffers}) / {self.num_segments} = d.slot_id)
+#                              """.format(**locals())
+                join_clause = """ON n.buffer_index = num_segments * d.slot_id + d.gp_segment_id"""
 
             else:  # Read from a table with dbids to distribute the data
                 input_tbl_valid(self.distribution_rules, self.module_name,
@@ -299,16 +305,9 @@ join_clause = """ON ( b.seg_id = d.gp_segment_id) AND (b.slot_id = d.slot_id)"""
                 num_segments = plpy.execute("SELECT count(*) as count FROM {self.distribution_rules}".format(**locals()))[0]['count']
                 join_clause = gpu_join_clause.format(**locals())
 
-#            dist_key_query = """
-#                    CREATE TEMP TABLE {dist_key_tbl} AS
-#                    SELECT gp_segment_id AS id, min({dist_key}) AS {dist_key}
-#                    FROM {series_tbl}
-#                    {where_clause}
-#                    GROUP BY gp_segment_id
-#            """
             dist_key_query = """
                     CREATE TEMP TABLE {dist_key_tbl} AS
-                    SELECT {dist_key} AS buffer_id, ROW_NUMBER OVER(PARTITION BY gp_segment_id) AS slot_id
+                    SELECT {dist_key} AS buffer_id, ROW_NUMBER() OVER(PARTITION BY gp_segment_id) AS slot_id
                     FROM {series_tbl}
                     {where_clause}
                     DISTRIBUTED BY (buffer_id)
@@ -328,14 +327,19 @@ join_clause = """ON ( b.seg_id = d.gp_segment_id) AND (b.slot_id = d.slot_id)"""
             (
                 SELECT
                     {self.schema_madlib}.gpdb_agg_array_concat(
-                        ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
+                        ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                     {self.schema_madlib}.gpdb_agg_array_concat(
-                        ARRAY[{norm_tbl}.y]) AS {y},
-                    row_id % {self.num_buffers} AS buffer_index
+                        ARRAY[n.y]) AS {y},
+                    d.buffer_id AS buffer_id,
                     count(*) AS count
-                FROM {norm_tbl} AS n JOIN {dist_key_table} AS d
-                {join_clause}
-                GROUP BY d.buffer_id
+                FROM (
+                    SELECT
+                        (ROW_NUMBER() OVER())::INTEGER % {self.num_buffers} AS buffer_index,
+                        x_norm, y
+                    FROM {norm_tbl} AS n JOIN {dist_key_table} AS d
+                    {join_clause}
+                ) a
+                GROUP BY buffer_id
             ) b
             {distributed_by_clause}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
