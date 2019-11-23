@@ -3,18 +3,19 @@
 -- drop table places10_train_gpdbagg_out_summary ;
 
 --          DROP TABLE IF EXISTS madlib_places10_normalized;
-EXPLAIN     CREATE TABLE madlib_places10_normalized AS
+EXPLAIN            CREATE TABLE madlib_places10_normalized AS
             SELECT x::REAL[] AS x_norm,
                 ARRAY[(y) IS NOT DISTINCT FROM 'airfield', (y) IS NOT DISTINCT FROM 'airplane_cabin', (y) IS NOT DISTINCT FROM 'airport_terminal', (y) IS NOT DISTINCT FROM 'alcove', (y) IS NOT DISTINCT FROM 'alley', (y) IS NOT DISTINCT FROM 'amphitheater', (y) IS NOT DISTINCT FROM 'amusement_arcade', (y) IS NOT DISTINCT FROM 'amusement_park', (y) IS NOT DISTINCT FROM 'apartment_building-outdoor', (y) IS NOT DISTINCT FROM 'aquarium']::INTEGER[]::SMALLINT[] AS y,
                 row_number() over() AS row_id
             FROM places10_train  ORDER BY RANDOM();
 
---SET optimizer='off';
-SET gp_enable_multiphase_agg='off';
+SET optimizer='off';
+SET enable_hashagg='off';
+--SET gp_enable_multiphase_agg='off';
 
         DROP TABLE IF EXISTS places10_train_gpdbagg_out;
         DROP TABLE IF EXISTS places10_train_gpdbagg_out_summary;
---EXPLAIN CREATE TABLE places10_train_gpdbagg_out AS
+-- EXPLAIN CREATE TABLE places10_train_gpdbagg_out AS
         CREATE TABLE places10_train_gpdbagg_out AS
         SELECT __dist_key__ ,
                madlib.convert_array_to_bytea(independent_var) AS independent_var,
@@ -25,11 +26,12 @@ SET gp_enable_multiphase_agg='off';
         FROM
         (
             SELECT
-                madlib.gpdb_agg_array_concat(
+                madlib.real_agg_array_concat(
                     ARRAY[madlib_places10_normalized.x_norm::REAL[]]) AS independent_var,
-                madlib.gpdb_agg_array_concat(
+                madlib.real_agg_array_concat(
                     ARRAY[madlib_places10_normalized.y]) AS dependent_var,
-                (madlib_places10_normalized.row_id%131.0)::smallint AS buffer_id,
+//                (madlib_places10_normalized.row_id % 131)::smallint AS buffer_id,
+                (madlib_places10_normalized.row_id / 381)::smallint AS buffer_id,
                 count(*) AS count
             FROM madlib_places10_normalized
             GROUP BY buffer_id

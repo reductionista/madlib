@@ -12,9 +12,9 @@ SET enable_hashagg=off;  -- uncomment for GroupAgg (only affects Planner)
             FROM
             (
                 SELECT
-                    madlib.gpdb_agg_array_concat(
+                    madlib.real_agg_array_concat(
                         ARRAY[madlib_places100_normalized.x_norm::REAL[]]) AS independent_var,
-                    madlib.gpdb_agg_array_concat(
+                    madlib.real_agg_array_concat(
                         ARRAY[madlib_places100_normalized.y]) AS dependent_var,
                     floor(madlib_places100_normalized.row_id/381)::smallint AS buffer_id,
                     -- shouldn't need floor as long as row_id is BIGINT.  We do need if it's NUMERIC
