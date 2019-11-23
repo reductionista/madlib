@@ -1,0 +1,75 @@
+INFO:  one_hot query:
+DETAIL:  
+            CREATE TEMP TABLE __madlib_temp_normalized84899197_1574454277_4520195__ AS
+            SELECT x::REAL[] AS x_norm,
+                ARRAY[(y) IS NOT DISTINCT FROM 0, (y) IS NOT DISTINCT FROM 1, (y) IS NOT DISTINCT FROM 2, (y) IS NOT DISTINCT FROM 3, (y) IS NOT DISTINCT FROM 4, (y) IS NOT DISTINCT FROM 5, (y) IS NOT DISTINCT FROM 6, (y) IS NOT DISTINCT FROM 7, (y) IS NOT DISTINCT FROM 8, (y) IS NOT DISTINCT FROM 9]::INTEGER[]::SMALLINT[] AS y
+            FROM cifar_demo_train  ORDER BY RANDOM()
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+INFO:  gen series query:
+DETAIL:  
+                    CREATE TEMP TABLE __madlib_temp_series60699754_1574454279_15966240__
+                    AS
+                    SELECT generate_series(0, 999999) __dist_key__
+                    DISTRIBUTED BY (__dist_key__)
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+INFO:  
+                    CREATE TEMP TABLE __madlib_temp_dist_key54013556_1574454279_49608103__ AS
+DETAIL:  
+                    SELECT __dist_key__ AS buffer_id, ROW_NUMBER() OVER(PARTITION BY gp_segment_id) AS slot_id
+                    FROM __madlib_temp_series60699754_1574454279_15966240__
+                    
+                    DISTRIBUTED BY (buffer_id)
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+INFO:  {'optimizer': 'off'}
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+INFO:  {'gp_enable_multiphase_agg': 'off'}
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+INFO:  Query:
+DETAIL:  
+            CREATE TABLE cifar_demo_batched AS
+            SELECT madlib.convert_array_to_bytea(independent_var) AS independent_var,
+                   madlib.convert_array_to_bytea(dependent_var) AS dependent_var,
+                   ARRAY[count,32,32,3]::SMALLINT[] AS independent_var_shape,
+                   ARRAY[count,10]::SMALLINT[] AS dependent_var_shape,
+                   buffer_id
+            FROM
+            (
+                SELECT
+                    madlib.gpdb_agg_array_concat(
+                        ARRAY[n.x_norm::REAL[]]) AS independent_var,
+                    madlib.gpdb_agg_array_concat(
+                        ARRAY[n.y]) AS dependent_var,
+                    d.buffer_id AS buffer_id,
+                    count(*) AS count
+                FROM (
+                    SELECT (ROW_NUMBER() OVER())::INTEGER % 3.0 AS buffer_index,
+                        x_norm, y FROM __madlib_temp_normalized84899197_1574454277_4520195__
+                ) n JOIN __madlib_temp_dist_key54013556_1574454279_49608103__ d
+                ON n.buffer_index = 3 * d.slot_id + d.gp_segment_id
+                GROUP BY buffer_id
+            ) b
+             DISTRIBUTED BY (buffer_id)
+CONTEXT:  PL/Python function "training_preprocessor_dl"
+
+
+
+
+Plan:
+
+                                                                         QUERY PLAN
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Subquery Scan b  (cost=3010291.36..4032368.01 rows=333808 width=76)
+   ->  HashAggregate  (cost=3010291.36..3516634.65 rows=333808 width=80)
+         Group By: d.buffer_id
+         ->  Hash Join  (cost=15615.62..2043102.75 rows=16780195 width=68)
+               Hash Cond: (3 * d.slot_id + d.gp_segment_id)::numeric = n.buffer_index
+               ->  Seq Scan on __madlib_temp_dist_key54013556_1574454279_49608103__ d  (cost=0.00..11360.24 rows=333808 width=16)
+               ->  Hash  (cost=13730.54..13730.54 rows=50269 width=96)
+                     ->  Broadcast Motion 1:3  (slice2; segments: 1)  (cost=0.00..13730.54 rows=150807 width=96)
+                           ->  Subquery Scan n  (cost=0.00..11719.78 rows=50269 width=96)
+                                 ->  Window  (cost=0.00..11217.09 rows=50269 width=73)
+                                       ->  Gather Motion 3:1  (slice1; segments: 3)  (cost=0.00..10840.07 rows=50269 width=73)
+                                             ->  Seq Scan on __madlib_temp_normalized84899197_1574454277_4520195__  (cost=0.00..9834.69 rows=16757 width=73)
+ Settings:  gp_enable_multiphase_agg=off; optimizer=off
+ Optimizer status: legacy query optimizer
+(14 rows)
