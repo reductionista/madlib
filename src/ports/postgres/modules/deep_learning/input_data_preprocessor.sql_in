@@ -972,6 +972,20 @@ CREATE AGGREGATE MADLIB_SCHEMA.anyarray_agg_array_concat(anyarray) (
    PREFUNC = array_cat
 );
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.bytea_cat(
+    BYTEA,
+    BYTEA
+) RETURNS BYTEA AS
+    SELECT $1 || $2;
+LANGUAGE SQL
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.string_agg(BYTEA)
+CREATE AGGREGATE MADLIB_SCHEMA.string_agg(BYTEA) (
+   SFUNC = bytea_cat,
+   STYPE = BYTA,
+   PREFUNC = bytea_cat
+);
+
 CREATE FUNCTION MADLIB_SCHEMA.convert_array_to_bytea(var REAL[])
 RETURNS BYTEA
 AS
