@@ -48,6 +48,14 @@ from madlib_keras_helper import *
 
 NUM_CLASSES_COLNAME = "num_classes"
 
+def debug_execute(sql, *args):
+    plpy.info(sql)
+    res = plpy.execute("EXPLAIN " + sql)
+    for r in res:
+        plpy.info(r)
+    plpy.execute(sql, *args)
+
+
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
                  dependent_varname, independent_varname, buffer_size,
@@ -92,7 +100,7 @@ class InputDataPreprocessorDL(object):
                 self.padding_size = self.num_classes - len(self.dependent_levels)
 
     def _validate_num_classes(self):
-        if self.num_classes is not None and \
+         if self.num_classes is not None and \
             self.num_classes < len(self.dependent_levels):
             plpy.error("{0}: Invalid num_classes value specified. It must "\
                 "be equal to or greater than distinct class values found "\
@@ -170,7 +178,8 @@ class InputDataPreprocessorDL(object):
                 row_number() over() AS row_id
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        plpy.execute(scalar_mult_sql)
+#        plpy.execute(scalar_mult_sql)
+        debug_execute(scalar_mult_sql)
         # Create the mini-batched output table
         if is_platform_pg():
             distributed_by_clause = ''
@@ -193,7 +202,7 @@ class InputDataPreprocessorDL(object):
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
-        plpy.execute(sql)
+        debug_execute(sql)
         plpy.execute("DROP TABLE IF EXISTS {0}".format(norm_tbl))
         # Create summary table
         self._create_output_summary_table()
@@ -233,7 +242,7 @@ class InputDataPreprocessorDL(object):
                        normalizing_const_colname=NORMALIZING_CONST_COLNAME,
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        plpy.execute(query)
+        debug_execute(query)
 
     def _validate_args(self):
         validate_module_input_params(
