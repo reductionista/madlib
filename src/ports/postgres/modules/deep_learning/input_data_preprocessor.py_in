@@ -45,15 +45,25 @@ from utilities.validate_args import input_tbl_valid
 from utilities.validate_args import get_expr_type
 
 from madlib_keras_helper import *
+import time
 
 NUM_CLASSES_COLNAME = "num_classes"
 
-def debug_execute(sql, *args):
-    plpy.info(sql)
-    res = plpy.execute("EXPLAIN " + sql)
-    for r in res:
-        plpy.info(r)
+def plpy_execute(sql, *args, **kwargs):
+    debug=False
+    if 'debug' in kwargs:
+        debug=kwargs['debug']
+
+    if debug:
+        plpy.info(sql)
+        res = plpy.execute("EXPLAIN " + sql, *args)
+        for r in res:
+            plpy.info(r['QUERY PLAN'])
+        start = time.time()
+
     plpy.execute(sql, *args)
+    if debug:
+        plpy.info("Query took {}s".format(time.time() - start))
 
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
@@ -198,8 +208,7 @@ class InputDataPreprocessorDL(object):
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
 
-#        plpy.execute(scalar_mult_sql)
-        debug_execute(scalar_mult_sql)
+        plpy_execute(scalar_mult_sql, debug=True)
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -276,7 +285,7 @@ class InputDataPreprocessorDL(object):
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
 
-        debug_execute(sql)
+        plpy_execute(sql, debug=True)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
 
         # Create summary table
@@ -317,7 +326,7 @@ class InputDataPreprocessorDL(object):
                        normalizing_const_colname=NORMALIZING_CONST_COLNAME,
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        debug_execute(query)
+        plpy_execute(query, debug=True)
 
     def _validate_args(self):
         validate_module_input_params(
