@@ -49,6 +49,22 @@ from madlib_keras_helper import *
 
 NUM_CLASSES_COLNAME = "num_classes"
 
+def plpy_execute(sql, *args, **kwargs):
+    debug=False
+    if 'debug' in kwargs:
+        debug=kwargs['debug']
+
+    if debug:
+        plpy.info(sql)
+        res = plpy.execute("EXPLAIN " + sql, *args)
+        for r in res:
+            plpy.info(r['QUERY PLAN'])
+        start = time.time()
+
+    plpy.execute(sql, *args)
+    if debug:
+        plpy.info("Query took {}s".format(time.time() - start))
+
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
                  dependent_varname, independent_varname, buffer_size,
@@ -199,7 +215,7 @@ class InputDataPreprocessorDL(object):
                 {one_hot_dep_var_array_expr} AS y
             FROM {self.source_table} {order_by_clause}
             """.format(**locals())
-        plpy.execute(one_hot_sql)
+        plpy_execute(one_hot_sql, debug=True)
         plpy.info("one_hot query: {}".format(one_hot_sql))
 
         series_tbl = unique_string(desp='series')
@@ -326,9 +342,9 @@ class InputDataPreprocessorDL(object):
             FROM
             (
                 SELECT
-                    {self.schema_madlib}.gpdb_agg_array_concat(
+                    {self.schema_madlib}.real_agg_array_concat(
                         ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.gpdb_agg_array_concat(
+                    {self.schema_madlib}.real_agg_array_concat(
                         ARRAY[n.y]) AS {y},
                     d.buffer_id AS buffer_id,
                     count(*) AS count
@@ -345,11 +361,8 @@ class InputDataPreprocessorDL(object):
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
         plpy.execute("SET optimizer=off")
-        plpy.execute("SET gp_enable_multiphase_agg=off")
-        plpy.info(plpy.execute("SHOW optimizer")[0])
-        plpy.info(plpy.execute("SHOW gp_enable_multiphase_agg")[0])
-        plpy.info("Query: {}".format(sql))
-        plpy.execute(sql)
+        plpy.execute("SET enable_hashagg=off")
+        plpy_execute(sql, debug=True)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
         self._create_output_summary_table()
