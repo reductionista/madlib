@@ -24,6 +24,7 @@
 """
 from math import ceil
 import plpy
+import time
 
 from internal.db_utils import get_distinct_col_levels
 from internal.db_utils import quote_literal
