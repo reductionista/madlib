@@ -204,7 +204,7 @@ class InputDataPreprocessorDL(object):
                 {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                row_number() over() AS row_id
+                id as row_id
             FROM {self.source_table} {order_by_clause}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
 
