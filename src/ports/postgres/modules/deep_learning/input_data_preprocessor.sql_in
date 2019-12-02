@@ -814,19 +814,11 @@ $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
 -- aggregation for independent var
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(REAL[]);
-CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(REAL[]) (
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(anyarray);
+CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(anyarray) (
    SFUNC = array_cat,
    PREFUNC = array_cat,
-   STYPE = REAL[]
-   );
-
--- aggregation for dependent var
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.agg_array_concat(SMALLINT[]);
-CREATE AGGREGATE MADLIB_SCHEMA.agg_array_concat(SMALLINT[]) (
-   SFUNC = array_cat,
-   PREFUNC = array_cat,
-   STYPE = SMALLINT[]
+   STYPE = anyarray
    );
 
 CREATE FUNCTION MADLIB_SCHEMA.convert_array_to_bytea(var REAL[])
