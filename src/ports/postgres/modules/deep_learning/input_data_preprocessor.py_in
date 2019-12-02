@@ -178,7 +178,7 @@ class InputDataPreprocessorDL(object):
         # which case we assume it's already one-hot encoded.
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
-        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+        order_by_clause = ""
         scalar_mult_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {self.independent_varname}::{FLOAT32_SQL_TYPE}[] AS x_norm,
