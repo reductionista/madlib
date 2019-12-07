@@ -73,7 +73,7 @@ class InputDataPreprocessorDL(object):
         ## Validating input args prior to using them in _set_validate_vartypes()
         self._validate_args()
         self._set_validate_vartypes()
-        self.num_of_buffers = self._get_num_buffers()
+        self.num_buffers = self._get_num_buffers()
         self.dependent_levels = None
         # The number of padded zeros to include in 1-hot vector
         self.padding_size = 0
@@ -247,11 +247,11 @@ class InputDataPreprocessorDL(object):
             # Using 999999 would distribute data(atleast 1 row on each segment) for
             # a cluster as large as 20000
             query = """
-                    CREATE TEMP TABLE {series_tbl}
-                    AS
+                CREATE TEMP TABLE {series_tbl} AS
                     SELECT generate_series(0, 999999) {dist_key}
                     DISTRIBUTED BY ({dist_key})
                 """.format(**locals())
+
             plpy.execute(query)
             distributed_by_clause= ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
             dist_key_comma = dist_key + ' ,'
@@ -324,33 +324,50 @@ class InputDataPreprocessorDL(object):
             """
             plpy.execute(dist_key_query.format(**locals()))
 
+        sql = """
+            CREATE TEMP TABLE {norm_tbl_redist} AS SELECT n.x_norm, n.y, d.{dist_key},
+                (ROW_NUMBER() OVER(PARTITION BY {dist_key}))::INTEGER as slot_id FROM
+                    {norm_tbl} AS n JOIN {dist_key_tbl} AS d
+                        ON (p.id % {num_segments}) = d.gp_segment_id
+                            ORDER BY RANDOM() DISTRIBUTED BY ({dist_key})
+        """
+
+        plpy.execute(sql) # Add dist_key and slot_id columns to normalized table
+
+        buffers_per_seg = ceil(num_buffers * 1.0 / num_segments)
+
         # Create the mini-batched output table
         sql = """
+            SET optimizer=off; SET enable_hashagg=off;
+                CREATE TEMP TABLE {batched_table} AS
+                    SELECT (gp_segment_id * {num_segments} + slot_id % {buffers_per_seg}) AS buffer_id,
+                        {dist_key},
+                        {self.schema_madlib}.agg_array_concat(
+                            ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
+                        {self.schema_madlib}.agg_array_concat(
+                            ARRAY[{norm_tbl}.y]) AS {y},
+                        COUNT(*) AS count
+                            FROM {norm_tbl_redist}
+                                GROUP BY buffer_id 
+                                    {distributed_by_clause}
+        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+                   y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+                   FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+                   **locals())
+
+        """
             CREATE TABLE {self.output_table} AS
-            SELECT {dist_key_comma}
+                SELECT {dist_key_comma}
                    {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
                    {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                    buffer_id
-            FROM
-            (
-                SELECT
-                    {self.schema_madlib}.agg_array_concat(
-                        ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.agg_array_concat(
-                        ARRAY[{norm_tbl}.y]) AS {y},
-                    ({norm_tbl}.row_id%{self.num_of_buffers})::smallint AS buffer_id,
-                    count(*) AS count
-                FROM {norm_tbl}
-                GROUP BY buffer_id
-            ) b
-            {join_clause}
-            {distributed_by_clause}
+                FROM {batched_table}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                        y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                       FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                        **locals())
+
         plpy.execute(sql)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
