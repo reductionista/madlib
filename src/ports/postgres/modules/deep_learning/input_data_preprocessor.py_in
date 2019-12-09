@@ -227,16 +227,24 @@ class InputDataPreprocessorDL(object):
         # which case we assume it's already one-hot encoded.
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
-        scalar_mult_sql = """
+
+        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
+            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
+                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
+                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        else:
+            self.normalizing_const = DEFAULT_NORMALIZING_CONST
+            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
+
+        one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
-            SELECT {self.schema_madlib}.array_scalar_mult(
-                {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
+            SELECT {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 id
             FROM {self.source_table}
-            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        plpy_execute(scalar_mult_sql, debug=True)
+            """.format(**locals())
+        plpy_execute(one_hot_sql, debug=True)
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
