@@ -324,13 +324,15 @@ class InputDataPreprocessorDL(object):
             """
             plpy.execute(dist_key_query.format(**locals()))
 
+        norm_tbl_redist = unique_string(desp='normalized_redist')
+
         sql = """
             CREATE TEMP TABLE {norm_tbl_redist} AS SELECT n.x_norm, n.y, d.{dist_key},
                 (ROW_NUMBER() OVER(PARTITION BY {dist_key}))::INTEGER as slot_id FROM
                     {norm_tbl} AS n JOIN {dist_key_tbl} AS d
                         ON (p.id % {num_segments}) = d.gp_segment_id
                             ORDER BY RANDOM() DISTRIBUTED BY ({dist_key})
-        """
+        """.format(**locals())
 
         plpy.execute(sql) # Add dist_key and slot_id columns to normalized table
 
