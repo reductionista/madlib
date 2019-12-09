@@ -356,26 +356,29 @@ class InputDataPreprocessorDL(object):
                 (ROW_NUMBER() OVER(PARTITION BY {dist_key}))::INTEGER as slot_id FROM
                     {norm_tbl} AS n JOIN {dist_key_tbl} AS d
                         ON (n.id % {num_segments}) = d.gp_segment_id
-                            {order_by_clause} DISTRIBUTED BY ({dist_key})
+                            {order_by_clause} {distributed_by_clause}
         """.format(**locals())
 
-        plpy_execute(sql) # Add dist_key and slot_id columns to normalized table
+        plpy_execute(sql, debug=True) # Add dist_key and slot_id columns to normalized table
 
         buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
 
+        batched_table = unique_string(desp='batched_table')
+
+        plpy.execute("SET optimizer=off; SET enable_hashagg=off")
+
         # Create the mini-batched output table
         sql = """
-            SET optimizer=off; SET enable_hashagg=off;
                 CREATE TEMP TABLE {batched_table} AS
                     SELECT (gp_segment_id * {num_segments} + slot_id % {buffers_per_seg}) AS buffer_id,
                         {dist_key},
                         {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
+                            ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                         {self.schema_madlib}.agg_array_concat(
-                            ARRAY[{norm_tbl}.y]) AS {y},
+                            ARRAY[n.y]) AS {y},
                         COUNT(*) AS count
-                            FROM {norm_tbl_redist}
-                                GROUP BY buffer_id 
+                            FROM {norm_tbl_redist} AS n
+                                GROUP BY {dist_key}, buffer_id 
                                     {distributed_by_clause}
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                    y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
@@ -383,7 +386,17 @@ class InputDataPreprocessorDL(object):
                    **locals())
 
         plpy_execute(sql, debug=True)
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
+
+        sql = """
+            CREATE TABLE {self.output_table} AS
+                SELECT {self.schema_madlib}.convert_array_to_bytea(x), {self.schema_madlib}.convert_array_to_bytea(y),
+                    {dist_key_comma}
+                    buffer_id FROM {batched_table} {distributed_by_clause}
+        """.format(**locals())
+
+        plpy_execute(sql, debug=True)
+
+        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}, {3}".format(norm_tbl, series_tbl, dist_key_tbl, batched_table))
         # Create summary table
         self._create_output_summary_table()
 
