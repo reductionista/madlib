@@ -61,10 +61,13 @@ def plpy_execute(sql, *args, **kwargs):
             plpy.info(r['QUERY PLAN'])
         start = time.time()
 
-    plpy.execute(sql, *args)
     if debug:
-        plpy.info("Query took {}s".format(time.time() - start))
-
+        res = plpy.execute("EXPLAIN ANALYZE " + sql, *args)
+        for r in res:
+            plpy.info(r['QUERY PLAN'])
+         plpy.info("Query took {}s".format(time.time() - start))
+    else:
+        plpy.execute(sql, *args)
 
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
@@ -188,6 +191,16 @@ class InputDataPreprocessorDL(object):
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
 #        plpy.execute(scalar_mult_sql)
         plpy_execute(scalar_mult_sql, debug=True)
+
+        scalar_mult_sql = """SET gp_autostats_mode=None;
+            CREATE TABLE {norm_tbl} AS
+            SELECT {self.independent_varname}::{FLOAT32_SQL_TYPE}[] AS x_norm,
+                {one_hot_dep_var_array_expr} AS y,
+                id AS row_id
+            FROM {self.source_table} {order_by_clause}; RESET gp_autostats_mode;
+            """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        plpy.execute(scalar_mult_sql)
+
         # Create the mini-batched output table
         if is_platform_pg():
             distributed_by_clause = ''
@@ -250,7 +263,7 @@ class InputDataPreprocessorDL(object):
                        normalizing_const_colname=NORMALIZING_CONST_COLNAME,
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        plpy_execute(query, debug=True)
+        plpy_execute(query, debug=False)
 
     def _validate_args(self):
         validate_module_input_params(
