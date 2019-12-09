@@ -75,7 +75,7 @@ class InputDataPreprocessorDL(object):
         self.dependent_varname = dependent_varname
         self.independent_varname = independent_varname
         self.buffer_size = buffer_size
-        self.normalizing_const = normalizing_const if normalizing_const is not None else DEFAULT_NORMALIZING_CONST
+        self.normalizing_const = normalizing_const
         self.num_classes = num_classes
         self.distribution_rules = distribution_rules if distribution_rules else DEFAULT_GPU_CONFIG
         self.module_name = module_name
@@ -227,17 +227,16 @@ class InputDataPreprocessorDL(object):
         # which case we assume it's already one-hot encoded.
         one_hot_dep_var_array_expr = \
             self.get_one_hot_encoded_dep_var_expr()
-        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
         scalar_mult_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {self.schema_madlib}.array_scalar_mult(
                 {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
                 (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE}) AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                row_number() over() AS row_id
-            FROM {self.source_table} {order_by_clause}
+                id
+            FROM {self.source_table}
             """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        plpy.execute(scalar_mult_sql)
+        plpy_execute(scalar_mult_sql, debug=True)
 
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
@@ -342,17 +341,19 @@ class InputDataPreprocessorDL(object):
 
         norm_tbl_redist = unique_string(desp='normalized_redist')
 
+        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+
         sql = """
             CREATE TEMP TABLE {norm_tbl_redist} AS SELECT n.x_norm, n.y, d.{dist_key},
                 (ROW_NUMBER() OVER(PARTITION BY {dist_key}))::INTEGER as slot_id FROM
                     {norm_tbl} AS n JOIN {dist_key_tbl} AS d
-                        ON (p.id % {num_segments}) = d.gp_segment_id
-                            ORDER BY RANDOM() DISTRIBUTED BY ({dist_key})
+                        ON (n.id % {num_segments}) = d.gp_segment_id
+                            {order_by_clause} DISTRIBUTED BY ({dist_key})
         """.format(**locals())
 
-        plpy.execute(sql) # Add dist_key and slot_id columns to normalized table
+        plpy_execute(sql) # Add dist_key and slot_id columns to normalized table
 
-        buffers_per_seg = ceil(num_buffers * 1.0 / num_segments)
+        buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
 
         # Create the mini-batched output table
         sql = """
@@ -373,20 +374,7 @@ class InputDataPreprocessorDL(object):
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                    **locals())
 
-        """
-            CREATE TABLE {self.output_table} AS
-                SELECT {dist_key_comma}
-                   {self.schema_madlib}.convert_array_to_bytea({x}) AS {x},
-                   {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
-                   ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
-                   ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
-                   buffer_id
-                FROM {batched_table}
-            """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
-                       y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                       **locals())
-
-        plpy.execute(sql)
+        plpy_execute(sql, debug=True)
         plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
         self._create_output_summary_table()
@@ -429,7 +417,7 @@ class InputDataPreprocessorDL(object):
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        internal_gpu_config=INTERNAL_GPU_CONFIG,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        plpy.execute(query)
+        plpy_execute(query, debug=True)
 
     def _validate_args(self):
         validate_module_input_params(
