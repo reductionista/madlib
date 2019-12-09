@@ -65,7 +65,7 @@ def plpy_execute(sql, *args, **kwargs):
         res = plpy.execute("EXPLAIN ANALYZE " + sql, *args)
         for r in res:
             plpy.info(r['QUERY PLAN'])
-         plpy.info("Query took {}s".format(time.time() - start))
+        plpy.info("Query took {}s".format(time.time() - start))
     else:
         plpy.execute(sql, *args)
 
