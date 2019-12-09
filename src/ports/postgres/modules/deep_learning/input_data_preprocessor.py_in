@@ -46,8 +46,24 @@ from utilities.validate_args import input_tbl_valid
 from utilities.validate_args import get_expr_type
 
 from madlib_keras_helper import *
+import time
 
 NUM_CLASSES_COLNAME = "num_classes"
+
+def plpy_execute(sql, *args, **kwargs):
+    debug=False
+    if 'debug' in kwargs:
+        debug=kwargs['debug']
+
+    if debug:
+        plpy.info(sql)
+        res = plpy.execute("EXPLAIN " + sql, *args)
+        for r in res:
+            plpy.info(r['QUERY PLAN'])
+        start = time.time()
+    plpy.execute(sql, *args)
+    if debug:
+        plpy.info("Query took {}s".format(time.time() - start))
 
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
