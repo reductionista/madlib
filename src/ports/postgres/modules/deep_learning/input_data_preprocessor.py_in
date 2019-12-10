@@ -237,12 +237,14 @@ class InputDataPreprocessorDL(object):
             self.normalizing_const = DEFAULT_NORMALIZING_CONST
             rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
 
+        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 id
-            FROM {self.source_table}
+            FROM {self.source_table} {order_by_clause}
             """.format(**locals())
         plpy_execute(one_hot_sql, debug=True)
 
@@ -349,19 +351,29 @@ class InputDataPreprocessorDL(object):
 
         norm_tbl_redist = unique_string(desp='normalized_redist')
 
-        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
-
         sql = """
             CREATE TEMP TABLE {norm_tbl_redist} AS SELECT n.x_norm, n.y, d.{dist_key},
-                (ROW_NUMBER() OVER(PARTITION BY {dist_key}))::INTEGER as slot_id FROM
+                (ROW_NUMBER() OVER(PARTITION BY {dist_key})-1)::INTEGER as slot_id FROM
                     {norm_tbl} AS n JOIN {dist_key_tbl} AS d
-                        ON (n.id % {num_segments}) = d.gp_segment_id
-                            {order_by_clause} {distributed_by_clause}
+                        ON (n.gp_segment_id = d.gp_segment_id)
+                            {distributed_by_clause}
         """.format(**locals())
 
         plpy_execute(sql, debug=True) # Add dist_key and slot_id columns to normalized table
 
 #        buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
+
+        labelled_buffers_tbl = unique_string(desp='labelled_buffers')
+
+        sql = """
+        CREATE TEMP TABLE {labelled_buffers_tbl} AS
+            SELECT {dist_key_comma}
+                x_norm, y, ((slot_id * {num_segments} + gp_segment_id) / {self.buffer_size})::INTEGER AS buffer_id
+                    FROM {norm_tbl_redist} ORDER BY buffer_id
+                                {distributed_by_clause}
+        """.format(**locals())
+
+        plpy_execute(sql, debug=True)   # label buffer_id's
 
         batched_table = unique_string(desp='batched_table')
 
@@ -370,15 +382,18 @@ class InputDataPreprocessorDL(object):
         # Create the mini-batched output table
         sql = """
                 CREATE TEMP TABLE {batched_table} AS
-                    SELECT (gp_segment_id * {num_segments} + slot_id::SMALLINT / {self.buffer_size}) AS buffer_id,
-                        {dist_key},
+                    SELECT {dist_key_comma}
+                         a.* FROM
+                        (SELECT buffer_id,
                         {self.schema_madlib}.agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                         {self.schema_madlib}.agg_array_concat(
                             ARRAY[n.y]) AS {y},
                         COUNT(*) AS count
-                            FROM {norm_tbl_redist} AS n
-                                GROUP BY {dist_key}, buffer_id 
+                            FROM {labelled_buffers_tbl} AS n
+                                GROUP BY buffer_id
+                        ) a JOIN {dist_key_tbl} d
+                            ON (a.buffer_id % {num_segments}) = d.gp_segment_id
                                     {distributed_by_clause}
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                    y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
