@@ -361,7 +361,7 @@ class InputDataPreprocessorDL(object):
 
         plpy_execute(sql, debug=True) # Add dist_key and slot_id columns to normalized table
 
-        buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
+#        buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
 
         batched_table = unique_string(desp='batched_table')
 
@@ -370,7 +370,7 @@ class InputDataPreprocessorDL(object):
         # Create the mini-batched output table
         sql = """
                 CREATE TEMP TABLE {batched_table} AS
-                    SELECT (gp_segment_id * {num_segments} + slot_id % {buffers_per_seg}) AS buffer_id,
+                    SELECT (gp_segment_id * {num_segments} + slot_id::SMALLINT / {self.buffer_size}) AS buffer_id,
                         {dist_key},
                         {self.schema_madlib}.agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
@@ -389,10 +389,13 @@ class InputDataPreprocessorDL(object):
 
         sql = """
             CREATE TABLE {self.output_table} AS
-                SELECT {self.schema_madlib}.convert_array_to_bytea(x), {self.schema_madlib}.convert_array_to_bytea(y),
+                SELECT {self.schema_madlib}.convert_array_to_bytea({x}) AS {x}, {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
                     {dist_key_comma}
                     buffer_id FROM {batched_table} {distributed_by_clause}
-        """.format(**locals())
+        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+                   y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+                   FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+                   **locals())
 
         plpy_execute(sql, debug=True)
 
