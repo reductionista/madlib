@@ -350,7 +350,7 @@ class InputDataPreprocessorDL(object):
                         ON (s.id % {num_segments} = d.gp_segment_id)
                             {distributed_by_clause}
             """.format(**locals())
-        plpy_execute(one_hot_sql, debug=False)
+        plpy_execute(one_hot_sql, debug=True)
 
         labelled_buffers_tbl = unique_string(desp='labelled_buffers')
 
@@ -376,9 +376,9 @@ class InputDataPreprocessorDL(object):
                     SELECT {dist_key_comma}
                          a.* FROM
                         (SELECT buffer_id,
-                        {self.schema_madlib}.agg_array_concat(
+                        {self.schema_madlib}.gpdb_agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                        {self.schema_madlib}.agg_array_concat(
+                        {self.schema_madlib}.gpdb_agg_array_concat(
                             ARRAY[n.y]) AS {y},
                         COUNT(*) AS count
                             FROM {labelled_buffers_tbl} AS n
