@@ -89,7 +89,6 @@ class InputDataPreprocessorDL(object):
         ## Validating input args prior to using them in _set_validate_vartypes()
         self._validate_args()
         self._set_validate_vartypes()
-        self.num_buffers = self._get_num_buffers()
         self.dependent_levels = None
         # The number of padded zeros to include in 1-hot vector
         self.padding_size = 0
@@ -216,38 +215,6 @@ class InputDataPreprocessorDL(object):
             4) Minibatches the one-hot encoded dependent variable.
         """
         self._set_one_hot_encoding_variables()
-        # Create a temp table that has independent var normalized.
-        norm_tbl = unique_string(desp='normalized')
-
-        # Always one-hot encode the dependent var. For now, we are assuming
-        # that input_preprocessor_dl will be used only for deep
-        # learning and mostly for classification. So make a strong
-        # assumption that it is only for classification, so one-hot
-        # encode the dep var, unless it's already a numeric array in
-        # which case we assume it's already one-hot encoded.
-        one_hot_dep_var_array_expr = \
-            self.get_one_hot_encoded_dep_var_expr()
-
-        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
-            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
-                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
-                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        else:
-            self.normalizing_const = DEFAULT_NORMALIZING_CONST
-            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
-
-        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
-
-        one_hot_sql = """
-            CREATE TEMP TABLE {norm_tbl} AS
-            SELECT {rescale_independent_var} AS x_norm,
-                {one_hot_dep_var_array_expr} AS y,
-                id
-            FROM {self.source_table} {order_by_clause}
-            """.format(**locals())
-        plpy_execute(one_hot_sql, debug=True)
-
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
         dep_shape_col = add_postfix(
@@ -341,35 +308,59 @@ class InputDataPreprocessorDL(object):
                 self.distribution_rules = "ARRAY{0}".format(sorted(gpu_query_result['dbid']))
 
             dist_key_query = """
-                    CREATE TEMP TABLE {dist_key_tbl} AS
-                    SELECT gp_segment_id AS id, min({dist_key}) AS {dist_key}
+                    CREATE TABLE {dist_key_tbl} AS
+                    SELECT min({dist_key}) AS {dist_key}
                     FROM {series_tbl}
                     {where_clause}
                     GROUP BY gp_segment_id
+                    DISTRIBUTED BY ({dist_key})
             """
             plpy.execute(dist_key_query.format(**locals()))
 
-        norm_tbl_redist = unique_string(desp='normalized_redist')
+        # Create a temp table that has independent var normalized.
+        norm_tbl = unique_string(desp='normalized')
 
-        sql = """
-            CREATE TEMP TABLE {norm_tbl_redist} AS SELECT n.x_norm, n.y, d.{dist_key},
-                (ROW_NUMBER() OVER(PARTITION BY {dist_key})-1)::INTEGER as slot_id FROM
-                    {norm_tbl} AS n JOIN {dist_key_tbl} AS d
-                        ON (n.gp_segment_id = d.gp_segment_id)
+        # Always one-hot encode the dependent var. For now, we are assuming
+        # that input_preprocessor_dl will be used only for deep
+        # learning and mostly for classification. So make a strong
+        # assumption that it is only for classification, so one-hot
+        # encode the dep var, unless it's already a numeric array in
+        # which case we assume it's already one-hot encoded.
+        one_hot_dep_var_array_expr = \
+            self.get_one_hot_encoded_dep_var_expr()
+
+        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
+            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
+                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
+                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        else:
+            self.normalizing_const = DEFAULT_NORMALIZING_CONST
+            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
+
+        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
+
+        one_hot_sql = """
+            CREATE TEMP TABLE {norm_tbl} AS
+            SELECT {rescale_independent_var} AS x_norm,
+                {one_hot_dep_var_array_expr} AS y,
+                {dist_key_comma}
+                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key} ORDER BY RANDOM())-1)::INTEGER as slot_id FROM
+                    {self.source_table} AS s JOIN {dist_key_tbl} AS d
+                        ON (s.id % {num_segments} = d.gp_segment_id)
                             {distributed_by_clause}
-        """.format(**locals())
-
-        plpy_execute(sql, debug=True) # Add dist_key and slot_id columns to normalized table
-
-#        buffers_per_seg = ceil(self.num_buffers * 1.0 / num_segments)
+            """.format(**locals())
+        plpy_execute(one_hot_sql, debug=False)
 
         labelled_buffers_tbl = unique_string(desp='labelled_buffers')
 
+        self.rows_per_buffer = self._get_rows_per_buffer(num_segments)
+
         sql = """
-        CREATE TEMP TABLE {labelled_buffers_tbl} AS
+        CREATE TABLE {labelled_buffers_tbl} AS
             SELECT {dist_key_comma}
-                x_norm, y, ((slot_id * {num_segments} + gp_segment_id) / {self.buffer_size})::INTEGER AS buffer_id
-                    FROM {norm_tbl_redist} ORDER BY buffer_id
+                x_norm, y, ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.rows_per_buffer})::INTEGER AS buffer_id
+                    FROM {norm_tbl} ORDER BY buffer_id
                                 {distributed_by_clause}
         """.format(**locals())
 
@@ -381,7 +372,7 @@ class InputDataPreprocessorDL(object):
 
         # Create the mini-batched output table
         sql = """
-                CREATE TEMP TABLE {batched_table} AS
+            CREATE TABLE {batched_table} AS
                     SELECT {dist_key_comma}
                          a.* FROM
                         (SELECT buffer_id,
@@ -414,7 +405,8 @@ class InputDataPreprocessorDL(object):
 
         plpy_execute(sql, debug=True)
 
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}, {3}".format(norm_tbl, series_tbl, dist_key_tbl, batched_table))
+#        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}, {3}".format(norm_tbl, series_tbl, dist_key_tbl, batched_table))
+        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
         # Create summary table
         self._create_output_summary_table()
 
@@ -442,7 +434,7 @@ class InputDataPreprocessorDL(object):
                 $__madlib__${self.independent_varname}$__madlib__$::TEXT AS {independent_varname_colname},
                 $__madlib__${self.dependent_vartype}$__madlib__$::TEXT AS {dependent_vartype_colname},
                 {class_level_str} AS {class_values_colname},
-                {self.buffer_size} AS buffer_size,
+                {self.rows_per_buffer} AS rows_per_buffer,
                 {self.normalizing_const}::{FLOAT32_SQL_TYPE} AS {normalizing_const_colname},
                 {self.num_classes} AS {num_classes_colname},
                 {self.distribution_rules} AS distribution_rules,
@@ -504,16 +496,17 @@ class InputDataPreprocessorDL(object):
         return get_distinct_col_levels(table, dependent_varname,
             dependent_vartype, include_nulls=True)
 
-    def _get_num_buffers(self):
+    def _get_rows_per_buffer(self, num_segments):
         num_rows_in_tbl = plpy.execute("""
                 SELECT count(*) AS cnt FROM {0}
             """.format(self.source_table))[0]['cnt']
         buffer_size_calculator = MiniBatchBufferSizeCalculator()
         indepdent_var_dim = get_product_of_dimensions(self.source_table,
             self.independent_varname)
-        self.buffer_size = buffer_size_calculator.calculate_default_buffer_size(
+        buffer_size = buffer_size_calculator.calculate_default_buffer_size(
             self.buffer_size, num_rows_in_tbl, indepdent_var_dim)
-        return ceil((1.0 * num_rows_in_tbl) / self.buffer_size)
+        num_buffers = num_segments * ceil((1.0 * num_rows_in_tbl) / buffer_size / num_segments)
+        return int(num_rows_in_tbl / num_buffers)
 
 class ValidationDataPreprocessorDL(InputDataPreprocessorDL):
     def __init__(self, schema_madlib, source_table, output_table,
