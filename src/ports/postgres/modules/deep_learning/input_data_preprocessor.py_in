@@ -396,6 +396,8 @@ class InputDataPreprocessorDL(object):
         sql = """
             CREATE TABLE {self.output_table} AS
                 SELECT {self.schema_madlib}.convert_array_to_bytea({x}) AS {x}, {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
+                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
+                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                     {dist_key_comma}
                     buffer_id FROM {batched_table} {distributed_by_clause}
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
@@ -506,7 +508,7 @@ class InputDataPreprocessorDL(object):
         buffer_size = buffer_size_calculator.calculate_default_buffer_size(
             self.buffer_size, num_rows_in_tbl, indepdent_var_dim)
         num_buffers = num_segments * ceil((1.0 * num_rows_in_tbl) / buffer_size / num_segments)
-        return int(num_rows_in_tbl / num_buffers)
+        return int(ceil(num_rows_in_tbl / num_buffers))
 
 class ValidationDataPreprocessorDL(InputDataPreprocessorDL):
     def __init__(self, schema_madlib, source_table, output_table,
