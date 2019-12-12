@@ -395,7 +395,7 @@ class InputDataPreprocessorDL(object):
 
         sql = """
             CREATE TABLE {self.output_table} AS
-                SELECT {self.schema_madlib}.convert_array_to_bytea({x}) AS {x}, {self.schema_madlib}.convert_array_to_bytea({y}) AS {y},
+                SELECT {self.schema_madlib}.to_bytea({x}) AS {x}, {self.schema_madlib}.to_bytea({y}) AS {y},
                     ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                     ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                     {dist_key_comma}
