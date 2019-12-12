@@ -2124,9 +2124,7 @@ gpdb_array_cat(PG_FUNCTION_ARGS)
 			   *lbs,
 				ndims,
 				nitems,
-				ndatabytes,
-                nallocbytes,
-				nbytes;
+				ndatabytes;
 	int		   *dims1,
 			   *lbs1,
 				ndims1,
@@ -2146,6 +2144,8 @@ gpdb_array_cat(PG_FUNCTION_ARGS)
 	Oid			element_type1;
 	Oid			element_type2;
 	int32		dataoffset;
+    uint32      nbytes;
+    uint32      nallocbytes;
 
 	/* Concatenating a null array is a no-op, just return the other input */
 	if (PG_ARGISNULL(0))
