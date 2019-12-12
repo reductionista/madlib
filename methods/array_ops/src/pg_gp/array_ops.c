@@ -2367,3 +2367,20 @@ ndatabytes2 = sizeof(float4) * nitems2;
 
 	PG_RETURN_ARRAYTYPE_P(result);
 }
+
+PG_FUNCTION_INFO_V1(to_bytea);
+Datum
+to_bytea(PG_FUNCTION_ARGS)
+{
+    ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
+    int n = ArrayGetNItems(ARR_NDIM(a), ARR_DIMS(a));
+    bytea *ba = palloc(length);
+
+    SET_VARSIZE(ba);
+
+    memcpy(((char *)ba) + VARHDRSZ, ARR_DATA_PTR(a), n);
+        ba = ARR_DATA_PTR(a) - VARHDRSZ;
+    }
+
+    PG_RETURN_BYTEA_P(ba);
+}
