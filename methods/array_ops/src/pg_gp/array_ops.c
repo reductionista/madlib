@@ -2373,14 +2373,12 @@ Datum
 to_bytea(PG_FUNCTION_ARGS)
 {
     ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
-    int n = ArrayGetNItems(ARR_NDIM(a), ARR_DIMS(a));
-    bytea *ba = palloc(length);
+    int data_length = VARSIZE(a) - ARR_DATA_OFFSET(a);
+    bytea *ba = palloc(VARHDRSZ + data_length);
 
-    SET_VARSIZE(ba);
+    SET_VARSIZE(ba, VARHDRSZ + data_length);
 
-    memcpy(((char *)ba) + VARHDRSZ, ARR_DATA_PTR(a), n);
-        ba = ARR_DATA_PTR(a) - VARHDRSZ;
-    }
+    memcpy(((char *)ba) + VARHDRSZ, ARR_DATA_PTR(a), data_length);
 
     PG_RETURN_BYTEA_P(ba);
 }
