@@ -373,9 +373,7 @@ class InputDataPreprocessorDL(object):
         # Create the mini-batched output table
         sql = """
             CREATE TABLE {batched_table} AS
-                    SELECT {dist_key_comma}
-                         a.* FROM
-                        (SELECT buffer_id,
+                        SELECT buffer_id,
                         {self.schema_madlib}.gpdb_agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                         {self.schema_madlib}.gpdb_agg_array_concat(
@@ -383,9 +381,7 @@ class InputDataPreprocessorDL(object):
                         COUNT(*) AS count
                             FROM {labelled_buffers_tbl} AS n
                                 GROUP BY buffer_id
-                        ) a JOIN {dist_key_tbl} d
-                            ON (a.buffer_id % {num_segments}) = d.gp_segment_id
-                                    {distributed_by_clause}
+                                    DISTRIBUTED BY (buffer_id)
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                    y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
@@ -393,13 +389,25 @@ class InputDataPreprocessorDL(object):
 
         plpy_execute(sql, debug=True)
 
+        batched_table_dist_key = unique_string(desp='batched_table_dist_key')
+
+        # Redistribute from buffer_id to dist_key
+        sql = """CREATE TABLE {batched_table_dist_key} AS
+                    SELECT {dist_key}, b.* FROM {batched_table} b JOIN
+                        {dist_key_tbl} d
+                        ON (b.buffer_id % {num_segments}) = d.gp_segment_id
+                            {distributed_by_clause}
+        """.format(**locals())
+        plpy_execute(sql, debug=True)
+
+        # Convert ind & dep var from multi-dimensional arrays to BYTEA
         sql = """
             CREATE TABLE {self.output_table} AS
                 SELECT {self.schema_madlib}.to_bytea({x}) AS {x}, {self.schema_madlib}.to_bytea({y}) AS {y},
                     ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                     ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                     {dist_key_comma}
-                    buffer_id FROM {batched_table} {distributed_by_clause}
+                    buffer_id FROM {batched_table_dist_key} {distributed_by_clause}
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                    y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
