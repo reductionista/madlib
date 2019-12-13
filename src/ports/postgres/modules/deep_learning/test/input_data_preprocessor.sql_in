@@ -19,6 +19,7 @@
  *
  *//* ----------------------------------------------------------------------- */
 m4_include(`SQLCommon.m4')
+m4_changequote(`<!', `!>')
 
 DROP TABLE IF EXISTS data_preprocessor_input;
 CREATE TABLE data_preprocessor_input(id serial, x double precision[], label TEXT);
@@ -49,10 +50,31 @@ SELECT training_preprocessor_dl(
   'x',
   5);
 
-SELECT assert(count(*)=4, 'Incorrect number of buffers in data_preprocessor_input_batch.')
+-- Divide two integers and round up to the nearest integer
+CREATE FUNCTION divide_roundup(numerator INTEGER, denominator INTEGER)
+RETURNS INTEGER AS
+$$
+    SELECT ($1 / $2 + 1);
+$$ LANGUAGE SQL;
+
+-- For postgres, just need total rows / buffer_size rounded up.
+-- For greenplum, we take that result, and round up to the nearest multiple
+--   of num_segments.
+CREATE FUNCTION num_buffers(rows_in_tbl INTEGER, buffer_size INTEGER)
+RETURNS INTEGER AS
+$$
+m4_ifdef(<!__POSTGRESQL__!>,
+    <! SELECT divide_roundup($1, $2); !>,
+    <! SELECT COUNT(*) * divide_roundup(divide_roundup($1, $2), COUNT(*)) FROM gp_segment_configuration
+                                                WHERE role = 'p' AND content != -1; !>
+)
+$$ LANGUAGE SQL;
+
+SELECT assert(COUNT(*) = num_buffers(17, 5),
+    'Incorrect number of buffers in data_preprocessor_input_batch.')
 FROM data_preprocessor_input_batch;
 
-SELECT assert(independent_var_shape[2]=6, 'Incorrect buffer size.')
+SELECT assert(independent_var_shape[2]=6, 'Incorrect image size.')
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
 SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size.')
@@ -73,7 +95,8 @@ SELECT validation_preprocessor_dl(
   'data_preprocessor_input_batch',
   5);
 
-SELECT assert(count(*)=4, 'Incorrect number of buffers in validation_out.')
+SELECT assert(COUNT(*) = num_buffers(17, 5),
+    'Incorrect number of buffers in validation_out.')
 FROM validation_out;
 
 SELECT assert(independent_var_shape[2]=6, 'Incorrect buffer size.')
@@ -96,7 +119,6 @@ SELECT training_preprocessor_dl(
   'x');
 
 -- Test data is evenly distributed across all segments (GPDB only)
-m4_changequote(`<!', `!>')
 m4_ifdef(<!__POSTGRESQL__!>, <!!>, <!
 DROP TABLE IF EXISTS data_preprocessor_input_batch, data_preprocessor_input_batch_summary;
 SELECT training_preprocessor_dl(
