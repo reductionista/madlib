@@ -57,6 +57,13 @@ $$
     SELECT ($1 / $2 + 1);
 $$ LANGUAGE SQL;
 
+-- COUNT(*) returns type BIGINT, so this will cast it to INTEGER first
+CREATE FUNCTION divide_roundup(numerator INTEGER, denominator BIGINT)
+RETURNS INTEGER AS
+$$
+    SELECT divide_roundup($1, $2::INTEGER);
+$$ LANGUAGE SQL;
+
 -- For postgres, just need total rows / buffer_size rounded up.
 -- For greenplum, we take that result, and round up to the nearest multiple
 --   of num_segments.
@@ -65,7 +72,7 @@ RETURNS INTEGER AS
 $$
 m4_ifdef(<!__POSTGRESQL__!>,
     <! SELECT divide_roundup($1, $2); !>,
-    <! SELECT COUNT(*) * divide_roundup(divide_roundup($1, $2), COUNT(*)) FROM gp_segment_configuration
+    <! SELECT (COUNT(*)::INTEGER) * divide_roundup(divide_roundup($1, $2), COUNT(*)) FROM gp_segment_configuration
                                                 WHERE role = 'p' AND content != -1; !>
 )
 $$ LANGUAGE SQL;
@@ -74,16 +81,22 @@ SELECT assert(COUNT(*) = num_buffers(17, 5),
     'Incorrect number of buffers in data_preprocessor_input_batch.')
 FROM data_preprocessor_input_batch;
 
-SELECT assert(independent_var_shape[2]=6, 'Incorrect image size.')
+SELECT assert(independent_var_shape[2]=6, 'Incorrect image size ' || independent_var_shape[2])
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size.')
+SELECT assert(independent_var_shape[1]=3, 'Incorrect image size ' || independent_var_shape[1])
+FROM data_preprocessor_input_batch WHERE buffer_id=0;
+
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=1;
 
-SELECT assert(independent_var_shape[1]=4, 'Incorrect buffer size.')
-FROM data_preprocessor_input_batch WHERE buffer_id=3;
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
+FROM data_preprocessor_input_batch WHERE buffer_id=2;
 
-SELECT assert(octet_length(independent_var) = 96, 'Incorrect buffer size')
+SELECT assert(independent_var_shape[1]=2, 'Incorrect buffer size ' || independent_var_shape[1])
+FROM data_preprocessor_input_batch WHERE buffer_id=5;
+
+SELECT assert(octet_length(independent_var) = 96, 'Incorrect buffer length ' || octet_length(independent_var)::TEXT)
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
 DROP TABLE IF EXISTS validation_out, validation_out_summary;
