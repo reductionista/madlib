@@ -308,7 +308,7 @@ class InputDataPreprocessorDL(object):
                 self.distribution_rules = "ARRAY{0}".format(sorted(gpu_query_result['dbid']))
 
             dist_key_query = """
-                    CREATE TABLE {dist_key_tbl} AS
+                    CREATE TEMP TABLE {dist_key_tbl} AS
                     SELECT min({dist_key}) AS {dist_key}
                     FROM {series_tbl}
                     {where_clause}
@@ -316,6 +316,8 @@ class InputDataPreprocessorDL(object):
                     DISTRIBUTED BY ({dist_key})
             """
             plpy.execute(dist_key_query.format(**locals()))
+
+            plpy.execute("DROP TABLE {0}".format(series_tbl))
 
         # Create a temp table that has independent var normalized.
         norm_tbl = unique_string(desp='normalized')
@@ -357,9 +359,11 @@ class InputDataPreprocessorDL(object):
         self.rows_per_buffer = self._get_rows_per_buffer(num_segments)
 
         sql = """
-        CREATE TABLE {labelled_buffers_tbl} AS
+        CREATE TEMP TABLE {labelled_buffers_tbl} AS
             SELECT {dist_key_comma}
-                x_norm, y, ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.rows_per_buffer})::INTEGER AS buffer_id
+                x_norm,
+                y, 
+                ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.rows_per_buffer})::INTEGER AS buffer_id
                     FROM {norm_tbl} ORDER BY buffer_id
                                 {distributed_by_clause}
         """.format(**locals())
@@ -368,15 +372,15 @@ class InputDataPreprocessorDL(object):
 
         batched_table = unique_string(desp='batched_table')
 
-        plpy.execute("SET optimizer=off; SET enable_hashagg=off")
+        plpy.execute("DROP TABLE {norm_tbl}; SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
         # Create the mini-batched output table
         sql = """
-            CREATE TABLE {batched_table} AS
+            CREATE TEMP TABLE {batched_table} AS
                         SELECT buffer_id,
-                        {self.schema_madlib}.gpdb_agg_array_concat(
+                        {self.schema_madlib}.agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                        {self.schema_madlib}.gpdb_agg_array_concat(
+                        {self.schema_madlib}.agg_array_concat(
                             ARRAY[n.y]) AS {y},
                         COUNT(*) AS count
                             FROM {labelled_buffers_tbl} AS n
@@ -389,16 +393,28 @@ class InputDataPreprocessorDL(object):
 
         plpy_execute(sql, debug=True)
 
+        plpy.execute("DROP TABLE {0}".format(labelled_buffers_tbl))
+
         batched_table_dist_key = unique_string(desp='batched_table_dist_key')
 
+        plpy.info(time.time())
+        plpy.info("ANALYZing dist key tbl...")
+        plpy.execute("ANALYZE {dist_key_tbl}".format(**locals()))
+        plpy.info(time.time())
+        plpy.info("ANALYZing batched table...")
+        plpy.execute("ANALYZE {batched_table}".format(**locals()))
+        plpy.info(time.time())
+
         # Redistribute from buffer_id to dist_key
-        sql = """CREATE TABLE {batched_table_dist_key} AS
+        sql = """CREATE TEMP TABLE {batched_table_dist_key} AS
                     SELECT {dist_key}, b.* FROM {batched_table} b JOIN
                         {dist_key_tbl} d
                         ON (b.buffer_id % {num_segments}) = d.gp_segment_id
                             {distributed_by_clause}
         """.format(**locals())
         plpy_execute(sql, debug=True)
+
+        plpy.execute("DROP TABLE {0}, {1}".format(batched_table, dist_key_tbl))
 
         # Convert ind & dep var from multi-dimensional arrays to BYTEA
         sql = """
@@ -415,8 +431,8 @@ class InputDataPreprocessorDL(object):
 
         plpy_execute(sql, debug=True)
 
-#        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}, {3}".format(norm_tbl, series_tbl, dist_key_tbl, batched_table))
-        plpy.execute("DROP TABLE IF EXISTS {0}, {1}, {2}".format(norm_tbl, series_tbl, dist_key_tbl))
+        plpy.execute("DROP TABLE {0}".format(batched_table_dist_key))
+
         # Create summary table
         self._create_output_summary_table()
 
