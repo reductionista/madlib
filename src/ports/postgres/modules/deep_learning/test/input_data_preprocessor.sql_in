@@ -84,16 +84,16 @@ FROM data_preprocessor_input_batch;
 SELECT assert(independent_var_shape[2]=6, 'Incorrect image shape ' || independent_var_shape[2])
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=1;
 
-SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=2;
 
-SELECT assert(independent_var_shape[1]=4, 'Incorrect buffer size ' || independent_var_shape[1])
+SELECT assert(independent_var_shape[1]=2, 'Incorrect buffer size ' || independent_var_shape[1])
 FROM data_preprocessor_input_batch WHERE buffer_id=5;
 
 SELECT assert(octet_length(independent_var) = 72, 'Incorrect buffer length ' || octet_length(independent_var)::TEXT)
@@ -115,11 +115,11 @@ FROM validation_out;
 SELECT assert(independent_var_shape[2]=6, 'Incorrect image shape.')
 FROM data_preprocessor_input_batch WHERE buffer_id=0;
 
-SELECT assert(independent_var_shape[1]=5, 'Incorrect buffer size.')
+SELECT assert(independent_var_shape[1]=3, 'Incorrect buffer size.')
 FROM data_preprocessor_input_batch WHERE buffer_id=1;
 
-SELECT assert(independent_var_shape[1]=4, 'Incorrect buffer size.')
-FROM data_preprocessor_input_batch WHERE buffer_id=3;
+SELECT assert(independent_var_shape[1]=2, 'Incorrect buffer size.')
+FROM data_preprocessor_input_batch WHERE buffer_id=5;
 
 SELECT assert(octet_length(independent_var) = 72, 'Incorrect buffer length')
 FROM validation_out WHERE buffer_id=0;
@@ -144,11 +144,10 @@ SELECT training_preprocessor_dl(
 -- This test expects that total number of images(17 for input table data_preprocessor_input)
 -- are equally distributed across all segments.
 -- Therefore, after preprocessing seg0 will have 17/(# of segs) buffers.
-SELECT assert(count(*)=(SELECT ceil(17.0/count(*)) from gp_segment_configuration WHERE role = 'p' and content != -1), 'Even distribution of buffers failed.')
-FROM data_preprocessor_input_batch
-WHERE gp_segment_id = 0;
+SELECT gp_segment_id, assert((SELECT divide_roundup(17, count(*)) from gp_segment_configuration WHERE role = 'p' and content != -1) - COUNT(*) <= 1, 'Even distribution of buffers failed. Seeing ' || count(*) || ' buffers.')
+    FROM data_preprocessor_input_batch GROUP BY 1;
 SELECT assert(__internal_gpu_config__ = 'all_segments', 'Missing column in summary table')
-FROM data_preprocessor_input_batch_summary;
+    FROM data_preprocessor_input_batch_summary;
 
 -- Test validation data is evenly distributed across all segments (GPDB only)
 DROP TABLE IF EXISTS validation_out, validation_out_summary;
@@ -159,9 +158,8 @@ SELECT validation_preprocessor_dl(
   'x',
   'data_preprocessor_input_batch',
   1);
-SELECT assert(count(*)=(SELECT ceil(17.0/count(*)) from gp_segment_configuration WHERE role = 'p' and content != -1), 'Even distribution of validation buffers failed.')
-FROM validation_out
-WHERE gp_segment_id = 0;
+SELECT gp_segment_id, assert((SELECT divide_roundup(17, count(*)) from gp_segment_configuration WHERE role = 'p' and content != -1) - COUNT(*) <= 1, 'Even distribution of buffers failed. Seeing ' || count(*) || ' buffers.')
+    FROM validation_out GROUP BY 1;
 SELECT assert(__internal_gpu_config__ = 'all_segments', 'Missing column in validation summary table')
 FROM validation_out_summary;
 
@@ -255,7 +253,7 @@ SELECT assert
         independent_varname = 'x' AND
         dependent_vartype   = 'integer' AND
         class_values        = '{-6,-3,-1,0,2,3,4,5,6,7,8,9,10,12,NULL,NULL}' AND
-        buffer_size         = 4 AND  -- we sort the class values in python
+        buffer_size         = 3 AND  -- we sort the class values in python
         normalizing_const   = 5 AND
         pg_typeof(normalizing_const) = 'real'::regtype AND
         num_classes         = 16 AND

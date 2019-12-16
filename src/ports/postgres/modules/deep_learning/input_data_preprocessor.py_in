@@ -356,14 +356,14 @@ class InputDataPreprocessorDL(object):
 
         labelled_buffers_tbl = unique_string(desp='labelled_buffers')
 
-        self.rows_per_buffer = self._get_rows_per_buffer(num_segments)
+        self.buffer_size = self._get_buffer_size(num_segments)
 
         sql = """
         CREATE TEMP TABLE {labelled_buffers_tbl} AS
             SELECT {dist_key_comma}
                 x_norm,
                 y, 
-                ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.rows_per_buffer})::INTEGER AS buffer_id
+                ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.buffer_size})::INTEGER AS buffer_id
                     FROM {norm_tbl} ORDER BY buffer_id
                                 {distributed_by_clause}
         """.format(**locals())
@@ -460,7 +460,7 @@ class InputDataPreprocessorDL(object):
                 $__madlib__${self.independent_varname}$__madlib__$::TEXT AS {independent_varname_colname},
                 $__madlib__${self.dependent_vartype}$__madlib__$::TEXT AS {dependent_vartype_colname},
                 {class_level_str} AS {class_values_colname},
-                {self.rows_per_buffer} AS rows_per_buffer,
+                {self.buffer_size} AS buffer_size,
                 {self.normalizing_const}::{FLOAT32_SQL_TYPE} AS {normalizing_const_colname},
                 {self.num_classes} AS {num_classes_colname},
                 {self.distribution_rules} AS distribution_rules,
@@ -485,7 +485,8 @@ class InputDataPreprocessorDL(object):
             _assert(self.buffer_size > 0,
                     "{0}: The buffer size has to be a "
                     "positive integer or NULL.".format(self.module_name))
-        _assert(self.normalizing_const > 0,
+        if self.normalizing_const is not None:
+            _assert(self.normalizing_const > 0,
                 "{0}: The normalizing constant has to be a "
                 "positive integer or NULL.".format(self.module_name))
 
@@ -522,7 +523,7 @@ class InputDataPreprocessorDL(object):
         return get_distinct_col_levels(table, dependent_varname,
             dependent_vartype, include_nulls=True)
 
-    def _get_rows_per_buffer(self, num_segments):
+    def _get_buffer_size(self, num_segments):
         num_rows_in_tbl = plpy.execute("""
                 SELECT count(*) AS cnt FROM {0}
             """.format(self.source_table))[0]['cnt']
