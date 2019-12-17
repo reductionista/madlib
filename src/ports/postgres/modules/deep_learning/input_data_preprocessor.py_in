@@ -352,7 +352,7 @@ class InputDataPreprocessorDL(object):
                         ON (s.id % {num_segments} = d.gp_segment_id)
                             {distributed_by_clause}
             """.format(**locals())
-        plpy_execute(one_hot_sql, debug=True)
+        plpy_execute(one_hot_sql)
 
         labelled_buffers_tbl = unique_string(desp='labelled_buffers')
 
@@ -368,7 +368,7 @@ class InputDataPreprocessorDL(object):
                                 {distributed_by_clause}
         """.format(**locals())
 
-        plpy_execute(sql, debug=True)   # label buffer_id's
+        plpy_execute(sql)   # label buffer_id's
 
         batched_table = unique_string(desp='batched_table')
 
@@ -391,19 +391,14 @@ class InputDataPreprocessorDL(object):
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                    **locals())
 
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         plpy.execute("DROP TABLE {0}".format(labelled_buffers_tbl))
 
         batched_table_dist_key = unique_string(desp='batched_table_dist_key')
 
-        plpy.info(time.time())
-        plpy.info("ANALYZing dist key tbl...")
         plpy.execute("ANALYZE {dist_key_tbl}".format(**locals()))
-        plpy.info(time.time())
-        plpy.info("ANALYZing batched table...")
         plpy.execute("ANALYZE {batched_table}".format(**locals()))
-        plpy.info(time.time())
 
         # Redistribute from buffer_id to dist_key
         sql = """CREATE TEMP TABLE {batched_table_dist_key} AS
@@ -412,7 +407,7 @@ class InputDataPreprocessorDL(object):
                         ON (b.buffer_id % {num_segments}) = d.gp_segment_id
                             {distributed_by_clause}
         """.format(**locals())
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         plpy.execute("DROP TABLE {0}, {1}".format(batched_table, dist_key_tbl))
 
@@ -429,7 +424,7 @@ class InputDataPreprocessorDL(object):
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                    **locals())
 
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         plpy.execute("DROP TABLE {0}".format(batched_table_dist_key))
 
@@ -474,7 +469,7 @@ class InputDataPreprocessorDL(object):
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        internal_gpu_config=INTERNAL_GPU_CONFIG,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        plpy_execute(query, debug=True)
+        plpy_execute(query)
 
     def _validate_args(self):
         validate_module_input_params(
