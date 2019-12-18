@@ -205,6 +205,48 @@ class InputDataPreprocessorDL(object):
             shape = parse_shape(shape)
         return shape
 
+    def run_batch_rows_query(self, local_vars):
+        """
+            This can be called from either pg or gpdb path,
+            dist_by_buffer_id & make_buffer_id must be set first
+        """
+        batching_query = """
+            CREATE TEMP TABLE {batched_table} AS SELECT
+                {make_buffer_id} buffer_id,
+                {self.schema_madlib}.agg_array_concat(
+                    ARRAY[x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
+                {self.schema_madlib}.agg_array_concat(
+                    ARRAY[y]) AS {y},
+                COUNT(*) AS count
+            FROM {normalized_tbl} GROUP BY buffer_id
+            {dist_by_buffer_id}
+        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+               y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+               FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+               **local_vars)
+
+        plpy.execute(batching_query)
+ 
+    def convert_to_bytea(self, local_vars):
+        """
+            Convert ind & dep var from multi-dimensional arrays to BYTEA
+        """
+        bytea_query = """
+            CREATE TABLE {self.output_table} AS SELECT
+                {dist_key_comma}
+                {self.schema_madlib}.to_bytea({x}) AS {x},
+                {self.schema_madlib}.to_bytea({y}) AS {y},
+                ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
+                ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
+                buffer_id
+            FROM {batched_table}
+            {dist_by_dist_key}
+        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
+            y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
+            FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
+            **local_vars)
+        plpy_execute(bytea_query) 
+
     def input_preprocessor_dl(self, order_by_random=True):
         """
             Creates the output and summary table that does the following
@@ -220,7 +262,7 @@ class InputDataPreprocessorDL(object):
         # Generate random strings for TEMP tables
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
-        norm_tbl = unique_string(desp='norm_table')
+        normalized_tbl = unique_string(desp='normalized_table')
         batched_table = unique_string(desp='batched_table')
 
         dep_shape_col = add_postfix(
@@ -261,7 +303,7 @@ class InputDataPreprocessorDL(object):
                   # see note in gpdb code branch (lower down) on
                   # 1-hot-encoding of dependent var
             one_hot_query = """
-                CREATE TEMP TABLE {norm_tbl} AS SELECT
+                CREATE TEMP TABLE {normalized_tbl} AS SELECT
                     ROW_NUMBER() OVER({order_by_clause}) as row_id,
                     {rescale_independent_var} AS x_norm,
                     {one_hot_dep_var_array_expr} AS y
@@ -270,46 +312,21 @@ class InputDataPreprocessorDL(object):
 
             plpy_execute(one_hot_query)
 
-            batched_table = unique_string(desp='batched_table')
-
             plpy.execute("SET enable_hashagg=off")
 
             self.buffer_size = self._get_buffer_size(1)
 
-            batching_query = """
-                CREATE TEMP TABLE {batched_table} AS SELECT
-                    row_id % {self.buffer_size} AS buffer_id,
-                    {self.schema_madlib}.agg_array_concat(
-                        ARRAY[x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                    {self.schema_madlib}.agg_array_concat(
-                        ARRAY[y]) AS {y},
-                    COUNT(*) AS count
-                FROM {norm_tbl} GROUP BY buffer_id
-            """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
-                   y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                   FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
-                   **locals())
-
-            plpy.execute(batching_query)
+            make_buffer_id = 'row_id % {self.buffer_size} AS '
+            dist_by_buffer_id = ''
+            self.run_batch_rows_query(locals())
             plpy.execute("DROP TABLE {0}".format(norm_tbl))
- 
-            bytea_query = """
-                CREATE TABLE {self.output_table} AS SELECT
-                    {self.schema_madlib}.to_bytea({x}) AS {x},
-                    {self.schema_madlib}.to_bytea({y}) AS {y},
-                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
-                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
-                    buffer_id
-                FROM {batched_table}
-            """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
-                y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
-                **locals())
 
-            plpy_execute(bytea_query)
+            dist_by_dist_key = ''
+            self.convert_to_bytea(locals())
             plpy.execute("DROP TABLE {0}".format(batched_table))
 
             self._create_output_summary_table()
+
             return
 
         # Done with postgres, rest is all for gpdb
@@ -330,9 +347,10 @@ class InputDataPreprocessorDL(object):
             """.format(**locals())
 
         plpy.execute(query)
-        distributed_by_dist_key = ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
-        distributed_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
+        dist_by_dist_key = ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
+        dist_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
         dist_key_comma = dist_key + ' ,'
+
         gpu_join_clause = """JOIN {dist_key_tbl} ON
             ({self.gpu_config})[b.buffer_id%{num_segments}+1] = {dist_key_tbl}.id
             """
@@ -412,89 +430,62 @@ class InputDataPreprocessorDL(object):
         # encode the dep var, unless it's already a numeric array in
         # which case we assume it's already one-hot encoded.
 
+        norm_tbl = unique_string(desp='norm_table')
+
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {dist_key},
                 {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 (ROW_NUMBER() OVER(PARTITION BY d.{dist_key} {order_by_clause})-1)::INTEGER as slot_id
-                    FROM {self.source_table} JOIN {dist_key_tbl} AS d
+                    FROM {self.source_table} s JOIN {dist_key_tbl} AS d
                         ON (s.id % {num_segments} = d.gp_segment_id)
-                            DISTRIBUTED BY {dist_key}
+                            DISTRIBUTED BY ({dist_key})
             """.format(**locals())
         plpy_execute(one_hot_sql)
-
-        labelled_buffers_tbl = unique_string(desp='labelled_buffers')
 
         self.buffer_size = self._get_buffer_size(num_segments)
 
         sql = """
-        CREATE TEMP TABLE {labelled_buffers_tbl} AS
+        CREATE TEMP TABLE {normalized_tbl} AS
             SELECT {dist_key_comma}
                 x_norm,
                 y, 
                 ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.buffer_size})::INTEGER AS buffer_id
                     FROM {norm_tbl} ORDER BY buffer_id
-                                {distributed_by_clause}
+                        DISTRIBUTED BY ({dist_key})
         """.format(**locals())
 
         plpy_execute(sql)   # label buffer_id's
 
         plpy.execute("DROP TABLE {norm_tbl}; SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
-        # Create the mini-batched output table
-        sql = """
-            CREATE TEMP TABLE {batched_table} AS
-                        SELECT buffer_id,
-                        {self.schema_madlib}.agg_array_concat(
-                            ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                        {self.schema_madlib}.agg_array_concat(
-                            ARRAY[n.y]) AS {y},
-                        COUNT(*) AS count
-                            FROM {labelled_buffers_tbl} AS n
-                                GROUP BY buffer_id
-                                    DISTRIBUTED BY (buffer_id)
-        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
-                   y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                   FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
-                   **locals())
+        make_buffer_id = '' 
+        dist_by_buffer_id = 'DISTRIBUTED BY (buffer_id)'
+        self.run_batch_rows_query(locals())
 
-        plpy_execute(sql)
-
-        plpy.execute("DROP TABLE {0}".format(labelled_buffers_tbl))
-
-        batched_table_dist_key = unique_string(desp='batched_table_dist_key')
+        plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
         plpy.execute("ANALYZE {dist_key_tbl}".format(**locals()))
         plpy.execute("ANALYZE {batched_table}".format(**locals()))
 
         # Redistribute from buffer_id to dist_key
-        sql = """CREATE TEMP TABLE {batched_table_dist_key} AS
+        sql = """CREATE TEMP TABLE {batched_table}_dist_key AS
                     SELECT {dist_key}, b.* FROM {batched_table} b JOIN
                         {dist_key_tbl} d
                         ON (b.buffer_id % {num_segments}) = d.gp_segment_id
-                            {distributed_by_clause}
-        """.format(**locals())
+                            DISTRIBUTED BY ({dist_key})
+              """.format(**locals())
         plpy_execute(sql)
 
-        plpy.execute("DROP TABLE {0}, {1}".format(batched_table, dist_key_tbl))
+        sql = """DROP TABLE {batched_table}, {dist_key_tbl};
+                 ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
+              """.format(**locals())
+        plpy.execute(sql)
 
-        # Convert ind & dep var from multi-dimensional arrays to BYTEA
-        sql = """
-            CREATE TABLE {self.output_table} AS
-                SELECT {self.schema_madlib}.to_bytea({x}) AS {x}, {self.schema_madlib}.to_bytea({y}) AS {y},
-                    ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
-                    ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
-                    {dist_key_comma}
-                    buffer_id FROM {batched_table_dist_key} {distributed_by_clause}
-        """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
-                   y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
-                   FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
-                   **locals())
+        self.convert_to_bytea(locals())
 
-        plpy_execute(sql)
-
-        plpy.execute("DROP TABLE {0}".format(batched_table_dist_key))
+        plpy.execute("DROP TABLE {0}".format(batched_table))
 
         # Create summary table
         self._create_output_summary_table()
