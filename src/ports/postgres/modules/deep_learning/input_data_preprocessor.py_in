@@ -214,9 +214,15 @@ class InputDataPreprocessorDL(object):
             3) One-hot encodes the dependent variable.
             4) Minibatches the one-hot encoded dependent variable.
         """
+        # setup for 1-hot encoding
         self._set_one_hot_encoding_variables()
+
+        # Generate random strings for TEMP tables
         series_tbl = unique_string(desp='series')
         dist_key_tbl = unique_string(desp='dist_key')
+        norm_tbl = unique_string(desp='norm_table')
+        batched_table = unique_string(desp='batched_table')
+
         dep_shape_col = add_postfix(
             MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL, "_shape")
         ind_shape_col = add_postfix(
@@ -227,48 +233,65 @@ class InputDataPreprocessorDL(object):
         dep_shape = self._get_dependent_var_shape()
         dep_shape = ','.join([str(i) for i in dep_shape])
 
+        one_hot_dep_var_array_expr = self.get_one_hot_encoded_dep_var_expr()
+
+        # skip normalization step if normalizing_const = 1.0
+        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
+            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
+                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
+                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
+                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
+        else:
+            self.normalizing_const = DEFAULT_NORMALIZING_CONST
+            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
+
+        # It's important that we shuffle all rows before batching for fit(), but
+        #  we can skip that for predict()
+        order_by_clause = " ORDER BY RANDOM()" if order_by_random else ""
+
         if is_platform_pg():
-            plpy.info("Detected Postgres")
+            # used later for writing summary table
             self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
-            distributed_by_dist_key = ''
-            distributed_by_buffer_id = ''
-            join_clause = ''
-            dist_key_comma = ''
 
-            norm_tbl = unique_string(desp='norm_table')
+            #
+            # For postgres, we just need 3 simple queries:
+            #   1-hot-encode/normalize + batching + bytea conversion
+            #
 
+                  # see note in gpdb code branch (lower down) on
+                  # 1-hot-encoding of dependent var
             one_hot_query = """
                 CREATE TEMP TABLE {norm_tbl} AS SELECT
+                    ROW_NUMBER() OVER({order_by_clause}) as row_id,
                     {rescale_independent_var} AS x_norm,
                     {one_hot_dep_var_array_expr} AS y
                 FROM {self.source_table}
-                    ORDER BY RANDOM()
             """.format(**locals())
 
-            psql_execute(one_hot_query)
+            plpy_execute(one_hot_query)
 
             batched_table = unique_string(desp='batched_table')
 
             plpy.execute("SET enable_hashagg=off")
 
+            self.buffer_size = self._get_buffer_size(1)
+
             batching_query = """
                 CREATE TEMP TABLE {batched_table} AS SELECT
-                    buffer_id,
+                    row_id % {self.buffer_size} AS buffer_id,
                     {self.schema_madlib}.agg_array_concat(
-                        ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]] AS {x},
+                        ARRAY[x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
                     {self.schema_madlib}.agg_array_concat(
-                        ARRAY[n.y]) AS {y},
+                        ARRAY[y]) AS {y},
                     COUNT(*) AS count
-                FROM {norm_tbl} AS n
-                    GROUP BY buffer_id
+                FROM {norm_tbl} GROUP BY buffer_id
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                    y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                    FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                    **locals())
 
-
             plpy.execute(batching_query)
-            plpy.execute("DROP TABLE {norm_tbl}")
+            plpy.execute("DROP TABLE {0}".format(norm_tbl))
  
             bytea_query = """
                 CREATE TABLE {self.output_table} AS SELECT
@@ -277,7 +300,7 @@ class InputDataPreprocessorDL(object):
                     ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                     ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                     buffer_id
-                FROM {batched_table_dist_key}
+                FROM {batched_table}
             """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                 y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                 FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
@@ -289,7 +312,12 @@ class InputDataPreprocessorDL(object):
             self._create_output_summary_table()
             return
 
-        plpy.info("Did NOT detect postgres")
+        # Done with postgres, rest is all for gpdb
+        #
+        # This gpdb code path is far more complex, and depends on
+        #   how the user wishes to distribute the data.  Even if
+        #   it's to be spread evenly across all segments, we still
+        #   need to do some extra work to ensure that happens.
 
         dist_key = DISTRIBUTION_KEY_COLNAME
         # Create large temp table such that there is atleast 1 row on each segment
@@ -377,9 +405,6 @@ class InputDataPreprocessorDL(object):
 
         plpy.execute("DROP TABLE {0}".format(series_tbl))
 
-        # Create a temp table that has independent var normalized.
-        norm_tbl = unique_string(desp='normalized')
-
         # Always one-hot encode the dependent var. For now, we are assuming
         # that input_preprocessor_dl will be used only for deep
         # learning and mostly for classification. So make a strong
@@ -387,25 +412,12 @@ class InputDataPreprocessorDL(object):
         # encode the dep var, unless it's already a numeric array in
         # which case we assume it's already one-hot encoded.
 
-        one_hot_dep_var_array_expr = self.get_one_hot_encoded_dep_var_expr()
-
-        if self.normalizing_const and (self.normalizing_const < 0.999999 or self.normalizing_const > 1.000001):
-            rescale_independent_var = """{self.schema_madlib}.array_scalar_mult(
-                                         {self.independent_varname}::{FLOAT32_SQL_TYPE}[],
-                                         (1/{self.normalizing_const})::{FLOAT32_SQL_TYPE})
-                                      """.format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE, **locals())
-        else:
-            self.normalizing_const = DEFAULT_NORMALIZING_CONST
-            rescale_independent_var = "{self.independent_varname}::{FLOAT32_SQL_TYPE}[]".format(FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,  **locals())
-
-        order_by_clause = " ORDER BY RANDOM() " if order_by_random else ""
-
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {dist_key},
                 {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key} ORDER BY RANDOM())-1)::INTEGER as slot_id
+                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key} {order_by_clause})-1)::INTEGER as slot_id
                     FROM {self.source_table} JOIN {dist_key_tbl} AS d
                         ON (s.id % {num_segments} = d.gp_segment_id)
                             DISTRIBUTED BY {dist_key}
@@ -427,8 +439,6 @@ class InputDataPreprocessorDL(object):
         """.format(**locals())
 
         plpy_execute(sql)   # label buffer_id's
-
-        batched_table = unique_string(desp='batched_table')
 
         plpy.execute("DROP TABLE {norm_tbl}; SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
