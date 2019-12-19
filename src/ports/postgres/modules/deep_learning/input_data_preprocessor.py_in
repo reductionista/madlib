@@ -586,7 +586,7 @@ class InputDataPreprocessorDL(object):
         indepdent_var_dim = get_product_of_dimensions(self.source_table,
             self.independent_varname)
         buffer_size = buffer_size_calculator.calculate_default_buffer_size(
-            self.buffer_size, num_rows_in_tbl, indepdent_var_dim)
+            self.buffer_size, num_rows_in_tbl, indepdent_var_dim, num_segments)
         num_buffers = num_segments * ceil((1.0 * num_rows_in_tbl) / buffer_size / num_segments)
         return int(ceil(num_rows_in_tbl / num_buffers))
 
