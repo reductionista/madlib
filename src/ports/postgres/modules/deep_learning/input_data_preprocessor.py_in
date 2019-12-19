@@ -233,7 +233,7 @@ class InputDataPreprocessorDL(object):
         """
         bytea_query = """
             CREATE TABLE {self.output_table} AS SELECT
-                {dist_key_comma}
+                {dist_key_col_comma}
                 {self.schema_madlib}.to_bytea({x}) AS {x},
                 {self.schema_madlib}.to_bytea({y}) AS {y},
                 ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
@@ -316,7 +316,7 @@ class InputDataPreprocessorDL(object):
 
             self.buffer_size = self._get_buffer_size(1)
 
-            make_buffer_id = 'row_id % {self.buffer_size} AS '
+            make_buffer_id = 'row_id % {buffer_size} AS '.format(self.buffer_isze)
             dist_by_buffer_id = ''
             self.run_batch_rows_query(locals())
             plpy.execute("DROP TABLE {0}".format(norm_tbl))
@@ -336,24 +336,22 @@ class InputDataPreprocessorDL(object):
         #   it's to be spread evenly across all segments, we still
         #   need to do some extra work to ensure that happens.
 
-        dist_key = DISTRIBUTION_KEY_COLNAME
+        dist_key_col = DISTRIBUTION_KEY_COLNAME
         # Create large temp table such that there is atleast 1 row on each segment
         # Using 999999 would distribute data(atleast 1 row on each segment) for
         # a cluster as large as 20000
         query = """
             CREATE TEMP TABLE {series_tbl} AS
-                SELECT generate_series(0, 999999) {dist_key}
-                DISTRIBUTED BY ({dist_key})
+                SELECT generate_series(0, 999999) {dist_key_col}
+                DISTRIBUTED BY ({dist_key_col})
             """.format(**locals())
 
         plpy.execute(query)
-        dist_by_dist_key = ' DISTRIBUTED BY ({dist_key}) '.format(**locals())
+        dist_by_dist_key = ' DISTRIBUTED BY ({dist_key_col}) '.format(**locals())
         dist_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
-        dist_key_comma = dist_key + ' ,'
+        dist_key_col_comma = dist_key_col + ' ,'
 
-        gpu_join_clause = """JOIN {dist_key_tbl} ON
-            ({self.gpu_config})[b.buffer_id%{num_segments}+1] = {dist_key_tbl}.id
-            """
+        gpu_join_key= "({self.gpu_config})[b.buffer_id % {num_segments} + 1]"
 
         if self.distribution_rules == 'gpu_segments':
             gpu_info_table = unique_string(desp='gpu_info')
@@ -386,15 +384,14 @@ class InputDataPreprocessorDL(object):
 
             num_segments = segment_ids_result['count']
             where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
-            join_clause = gpu_join_clause.format(**locals())
+            join_key = gpu_join_key.format(**locals())
 
         elif self.distribution_rules == DEFAULT_GPU_CONFIG:
 
             self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
             where_clause = ''
             num_segments = get_seg_number()
-            join_clause = 'JOIN {dist_key_tbl} ON (b.buffer_id%{num_segments})= {dist_key_tbl}.id'.format(**locals())
-
+            join_key = '(b.buffer_id % {num_segments})'.format(**locals())
         else:  # Read from a table with dbids to distribute the data
 
             self._validate_distribution_table()
@@ -408,16 +405,16 @@ class InputDataPreprocessorDL(object):
             self.gpu_config = "ARRAY{0}".format(sorted(gpu_query_result['gpu_config']))
             where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
             num_segments = plpy.execute("SELECT count(*) as count FROM {self.distribution_rules}".format(**locals()))[0]['count']
-            join_clause = gpu_join_clause.format(**locals())
+            join_key = gpu_join_key.format(**locals())
             self.distribution_rules = "ARRAY{0}".format(sorted(gpu_query_result['dbid']))
 
         dist_key_query = """
                 CREATE TEMP TABLE {dist_key_tbl} AS
-                SELECT min({dist_key}) AS {dist_key}
+                SELECT min({dist_key_col}) AS {dist_key_col}
                 FROM {series_tbl}
                 {where_clause}
                 GROUP BY gp_segment_id
-                DISTRIBUTED BY ({dist_key})
+                DISTRIBUTED BY ({dist_key_col})
         """
         plpy.execute(dist_key_query.format(**locals()))
 
@@ -434,13 +431,13 @@ class InputDataPreprocessorDL(object):
 
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
-            SELECT {dist_key},
+            SELECT {dist_key_col},
                 {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
-                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key} {order_by_clause})-1)::INTEGER as slot_id
+                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
                     FROM {self.source_table} s JOIN {dist_key_tbl} AS d
                         ON (s.id % {num_segments} = d.gp_segment_id)
-                            DISTRIBUTED BY ({dist_key})
+                            DISTRIBUTED BY ({dist_key_col})
             """.format(**locals())
         plpy_execute(one_hot_sql)
 
@@ -448,12 +445,12 @@ class InputDataPreprocessorDL(object):
 
         sql = """
         CREATE TEMP TABLE {normalized_tbl} AS
-            SELECT {dist_key_comma}
+            SELECT {dist_key_col_comma}
                 x_norm,
                 y, 
                 ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.buffer_size})::INTEGER AS buffer_id
                     FROM {norm_tbl} ORDER BY buffer_id
-                        DISTRIBUTED BY ({dist_key})
+                        DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
         plpy_execute(sql)   # label buffer_id's
@@ -471,10 +468,11 @@ class InputDataPreprocessorDL(object):
 
         # Redistribute from buffer_id to dist_key
         sql = """CREATE TEMP TABLE {batched_table}_dist_key AS
-                    SELECT {dist_key}, b.* FROM {batched_table} b JOIN
-                        {dist_key_tbl} d
-                        ON (b.buffer_id % {num_segments}) = d.gp_segment_id
-                            DISTRIBUTED BY ({dist_key})
+                    SELECT {dist_key_col}, b.*
+                        FROM {batched_table} b
+                            JOIN {dist_key_tbl} d
+                                ON {join_key} = d.gp_segment_id
+                            DISTRIBUTED BY ({dist_key_col})
               """.format(**locals())
         plpy_execute(sql)
 
