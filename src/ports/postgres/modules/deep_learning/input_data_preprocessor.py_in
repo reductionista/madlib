@@ -378,9 +378,9 @@ class InputDataPreprocessorDL(object):
         sql = """
             CREATE TEMP TABLE {batched_table} AS
                         SELECT buffer_id,
-                        {self.schema_madlib}.agg_array_concat(
+                        {self.schema_madlib}.gpdb_agg_array_concat(
                             ARRAY[n.x_norm::{FLOAT32_SQL_TYPE}[]]) AS {x},
-                        {self.schema_madlib}.agg_array_concat(
+                        {self.schema_madlib}.gpdb_agg_array_concat(
                             ARRAY[n.y]) AS {y},
                         COUNT(*) AS count
                             FROM {labelled_buffers_tbl} AS n
