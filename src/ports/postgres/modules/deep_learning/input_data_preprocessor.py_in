@@ -352,8 +352,7 @@ class InputDataPreprocessorDL(object):
         dist_by_dist_key = ' DISTRIBUTED BY ({dist_key_col}) '.format(**locals())
         dist_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
         dist_key_col_comma = dist_key_col + ' ,'
-
-        gpu_join_key= "({self.gpu_config})[b.buffer_id % {num_segments} + 1]"
+        gpu_join_key = '({self.gpu_config})[t.{{join_id_col}} % {num_segments} + 1]'
 
         if self.distribution_rules == 'gpu_segments':
             gpu_info_table = unique_string(desp='gpu_info')
@@ -393,7 +392,7 @@ class InputDataPreprocessorDL(object):
             self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
             where_clause = ''
             num_segments = get_seg_number()
-            join_key = '(b.buffer_id % {num_segments})'.format(**locals())
+            join_key = 't.{{join_id_col}} % {num_segments}'.format(**locals())
         else:  # Read from a table with dbids to distribute the data
 
             self._validate_distribution_table()
@@ -437,11 +436,11 @@ class InputDataPreprocessorDL(object):
                 {rescale_independent_var} AS x_norm,
                 {one_hot_dep_var_array_expr} AS y,
                 (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
-                    FROM {self.source_table} s JOIN {dist_key_tbl} AS d
-                        ON (s.id % {num_segments} = d.gp_segment_id)
+                    FROM {self.source_table} t JOIN {dist_key_tbl} AS d
+                        ON ({join_key} = d.gp_segment_id)
                             DISTRIBUTED BY ({dist_key_col})
             """.format(**locals())
-        plpy_execute(one_hot_sql)
+        plpy_execute(one_hot_sql.format(join_id_col='id'), debug=True)
 
         self.buffer_size = self._get_buffer_size(num_segments)
 
@@ -470,13 +469,15 @@ class InputDataPreprocessorDL(object):
 
         # Redistribute from buffer_id to dist_key
         sql = """CREATE TEMP TABLE {batched_table}_dist_key AS
-                    SELECT {dist_key_col}, b.*
-                        FROM {batched_table} b
+                    SELECT {dist_key_col}, t.*
+                        FROM {batched_table} t
                             JOIN {dist_key_tbl} d
                                 ON {join_key} = d.gp_segment_id
                             DISTRIBUTED BY ({dist_key_col})
               """.format(**locals())
-        plpy_execute(sql)
+
+        # match buffer_id's with dist_keys
+        plpy_execute(sql.format(join_id_col='buffer_id'), debug=True)
 
         sql = """DROP TABLE {batched_table}, {dist_key_tbl};
                  ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
