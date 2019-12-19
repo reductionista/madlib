@@ -316,12 +316,14 @@ class InputDataPreprocessorDL(object):
 
             self.buffer_size = self._get_buffer_size(1)
 
-            make_buffer_id = 'row_id % {buffer_size} AS '.format(self.buffer_isze)
+            make_buffer_id = 'row_id / {0} AS '.format(self.buffer_size)
+
             dist_by_buffer_id = ''
             self.run_batch_rows_query(locals())
-            plpy.execute("DROP TABLE {0}".format(norm_tbl))
+            plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
             dist_by_dist_key = ''
+            dist_key_col_comma = ''
             self.convert_to_bytea(locals())
             plpy.execute("DROP TABLE {0}".format(batched_table))
 
