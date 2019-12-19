@@ -304,7 +304,7 @@ class InputDataPreprocessorDL(object):
                   # 1-hot-encoding of dependent var
             one_hot_query = """
                 CREATE TEMP TABLE {normalized_tbl} AS SELECT
-                    ROW_NUMBER() OVER({order_by_clause}) as row_id,
+                    ROW_NUMBER() OVER({order_by_clause}) - 1 as row_id,
                     {rescale_independent_var} AS x_norm,
                     {one_hot_dep_var_array_expr} AS y
                 FROM {self.source_table}
