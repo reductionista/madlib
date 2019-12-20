@@ -77,7 +77,7 @@ class InputDataPreprocessorDL(object):
         self.buffer_size = buffer_size
         self.normalizing_const = normalizing_const
         self.num_classes = num_classes
-        self.distribution_rules = distribution_rules if distribution_rules else DEFAULT_GPU_CONFIG
+        self.distribution_rules = distribution_rules if distribution_rules else 'all_segments'
         self.module_name = module_name
         self.output_summary_table = None
         self.dependent_vartype = None
@@ -310,7 +310,7 @@ class InputDataPreprocessorDL(object):
                 FROM {self.source_table}
             """.format(**locals())
 
-            plpy_execute(one_hot_sql)
+            plpy_execute(one_hot_sql, debug=True)
 
             plpy.execute("SET enable_hashagg=off")
 
@@ -338,21 +338,14 @@ class InputDataPreprocessorDL(object):
         #   it's to be spread evenly across all segments, we still
         #   need to do some extra work to ensure that happens.
 
-        dist_key_col = DISTRIBUTION_KEY_COLNAME
-        # Create large temp table such that there is atleast 1 row on each segment
-        # Using 999999 would distribute data(atleast 1 row on each segment) for
-        # a cluster as large as 20000
-        query = """
-            CREATE TEMP TABLE {series_tbl} AS
-                SELECT generate_series(0, 999999) {dist_key_col}
-                DISTRIBUTED BY ({dist_key_col})
-            """.format(**locals())
-
-        plpy.execute(query)
-        dist_by_dist_key = ' DISTRIBUTED BY ({dist_key_col}) '.format(**locals())
-        dist_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
-        dist_key_col_comma = dist_key_col + ' ,'
-        gpu_join_key = '({self.gpu_config})[t.{{join_id_col}} % {num_segments} + 1]'
+        if self.distribution_rules == 'all_segments':
+            self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
+            where_clause = ''
+            num_segments = get_seg_number()
+            join_key = 't.{{join_id_col}} % {num_segments}'.format(**locals())
+        else:
+            join_key = None
+            gpu_join_key = '({self.gpu_config})[t.{{join_id_col}} % {num_segments} + 1]'
 
         if self.distribution_rules == 'gpu_segments':
             gpu_info_table = unique_string(desp='gpu_info')
@@ -387,14 +380,7 @@ class InputDataPreprocessorDL(object):
             where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
             join_key = gpu_join_key.format(**locals())
 
-        elif self.distribution_rules == DEFAULT_GPU_CONFIG:
-
-            self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
-            where_clause = ''
-            num_segments = get_seg_number()
-            join_key = 't.{{join_id_col}} % {num_segments}'.format(**locals())
-        else:  # Read from a table with dbids to distribute the data
-
+        elif not join_key:  # Read from a table with dbids to distribute the data
             self._validate_distribution_table()
             gpu_query = """
                 SELECT array_agg(content) as gpu_config,
@@ -409,6 +395,24 @@ class InputDataPreprocessorDL(object):
             join_key = gpu_join_key.format(**locals())
             self.distribution_rules = "ARRAY{0}".format(sorted(gpu_query_result['dbid']))
 
+        # Create large temp table such that there is atleast 1 row on each segment
+        # Using 999999 would distribute data(atleast 1 row on each segment) for
+        # a cluster as large as 20000
+        dist_key_col = DISTRIBUTION_KEY_COLNAME
+        query = """
+            CREATE TEMP TABLE {series_tbl} AS
+                SELECT generate_series(0, 999999) {dist_key_col}
+                DISTRIBUTED BY ({dist_key_col})
+            """.format(**locals())
+
+        plpy_execute(query)
+
+        # These 3 locals vars are set for the helper functions
+        #   run_batch_rows_query() and convert_to_bytea() to use
+        dist_by_dist_key = ' DISTRIBUTED BY ({dist_key_col}) '.format(**locals())
+        dist_by_buffer_id = ' DISTRIBUTED BY (buffer_id) '
+        dist_key_col_comma = dist_key_col + ' ,'
+ 
         dist_key_query = """
                 CREATE TEMP TABLE {dist_key_tbl} AS
                 SELECT min({dist_key_col}) AS {dist_key_col}
@@ -416,8 +420,9 @@ class InputDataPreprocessorDL(object):
                 {where_clause}
                 GROUP BY gp_segment_id
                 DISTRIBUTED BY ({dist_key_col})
-        """
-        plpy.execute(dist_key_query.format(**locals()))
+        """.format(**locals())
+
+        plpy_execute(dist_key_query, debug=True)
 
         plpy.execute("DROP TABLE {0}".format(series_tbl))
 
