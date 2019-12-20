@@ -225,7 +225,7 @@ class InputDataPreprocessorDL(object):
                FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                **local_vars)
 
-        plpy_execute(batching_query, debug=True)
+        plpy_execute(batching_query)
  
     def convert_to_bytea(self, local_vars):
         """
@@ -310,7 +310,7 @@ class InputDataPreprocessorDL(object):
                 FROM {self.source_table}
             """.format(**locals())
 
-            plpy_execute(one_hot_sql, debug=True)
+            plpy_execute(one_hot_sql)
 
             plpy.execute("SET enable_hashagg=off")
 
@@ -422,7 +422,7 @@ class InputDataPreprocessorDL(object):
                 DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy_execute(dist_key_query, debug=True)
+        plpy_execute(dist_key_query)
 
         plpy.execute("DROP TABLE {0}".format(series_tbl))
 
@@ -451,7 +451,7 @@ class InputDataPreprocessorDL(object):
             {order_by_clause}
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
-        plpy_execute(one_hot_sql, debug=True)
+        plpy_execute(one_hot_sql)
 
 #                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
 
@@ -482,19 +482,15 @@ class InputDataPreprocessorDL(object):
         #  N:1 Gather Motion (moving entire table to a single segment
         #  and scanning through it).
         #
-        #  Note:  the order in which we process the segments doesn't
-        #  matter to us; it will only affect which range of numbers
-        #  within the entire table range is assigned to which segment,
-        #  which we don't care about.
         sql = """
             CREATE TEMP TABLE {start_rows_tbl} AS SELECT
                 {dist_key_col},
-                SUM(rows_per_seg) OVER () - rows_per_seg AS start_row
+                SUM(rows_per_seg) OVER (ORDER BY gp_segment_id) - rows_per_seg AS start_row
             FROM {rows_per_seg_tbl}
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         plpy.execute("DROP TABLE {0}".format(rows_per_seg_tbl))
 
@@ -525,10 +521,9 @@ class InputDataPreprocessorDL(object):
             {dist_key_col},
             x_norm,
             y, 
-            (   start_row +
-                (
-                 ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
-                )::INTEGER / {self.buffer_size}
+            ((start_row +
+               ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
+             )::INTEGER / {self.buffer_size}
             ) AS buffer_id
         FROM {norm_tbl} JOIN {start_rows_tbl}
             USING ({dist_key_col})
@@ -554,7 +549,7 @@ class InputDataPreprocessorDL(object):
         plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
         # Run actual batching query
-        make_buffer_id = '' 
+        make_buffer_id = ''
         dist_by_buffer_id = 'DISTRIBUTED BY (buffer_id)'
         self.run_batch_rows_query(locals())
 
@@ -585,7 +580,7 @@ class InputDataPreprocessorDL(object):
               """.format(**locals())
 
         # match buffer_id's with dist_keys
-        plpy_execute(sql.format(join_id_col='buffer_id'), debug=True)
+        plpy_execute(sql.format(join_id_col='buffer_id'))
 
         sql = """DROP TABLE {batched_table}, {dist_key_tbl};
                  ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
