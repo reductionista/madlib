@@ -225,7 +225,7 @@ class InputDataPreprocessorDL(object):
                FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                **local_vars)
 
-        plpy.execute(batching_query)
+        plpy_execute(batching_query, debug=True)
  
     def convert_to_bytea(self, local_vars):
         """
@@ -302,15 +302,15 @@ class InputDataPreprocessorDL(object):
 
                   # see note in gpdb code branch (lower down) on
                   # 1-hot-encoding of dependent var
-            one_hot_query = """
+            one_hot_sql = """
                 CREATE TEMP TABLE {normalized_tbl} AS SELECT
-                    ROW_NUMBER() OVER({order_by_clause}) - 1 as row_id,
+                    (ROW_NUMBER() OVER({order_by_clause}) - 1)::INTEGER as row_id,
                     {rescale_independent_var} AS x_norm,
                     {one_hot_dep_var_array_expr} AS y
                 FROM {self.source_table}
             """.format(**locals())
 
-            plpy_execute(one_hot_query)
+            plpy_execute(one_hot_sql)
 
             plpy.execute("SET enable_hashagg=off")
 
@@ -428,36 +428,127 @@ class InputDataPreprocessorDL(object):
         # encode the dep var, unless it's already a numeric array in
         # which case we assume it's already one-hot encoded.
 
+        # While 1-hot-encoding is done, we also normalize the independent
+        # var and randomly shuffle the rows on each segment.  (The dist key
+        # we're adding avoids any rows moving between segments.  This may
+        # make things slightly less random, but helps with speed--probably
+        # a safe tradeoff to make.)
+
         norm_tbl = unique_string(desp='norm_table')
 
         one_hot_sql = """
             CREATE TEMP TABLE {norm_tbl} AS
             SELECT {dist_key_col},
                 {rescale_independent_var} AS x_norm,
-                {one_hot_dep_var_array_expr} AS y,
-                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
-                    FROM {self.source_table} t JOIN {dist_key_tbl} AS d
-                        ON ({join_key} = d.gp_segment_id)
-                            DISTRIBUTED BY ({dist_key_col})
-            """.format(**locals())
-        plpy_execute(one_hot_sql.format(join_id_col='id'), debug=True)
+                {one_hot_dep_var_array_expr} AS y
+            FROM {self.source_table} s JOIN {dist_key_tbl} AS d
+                ON (s.gp_segment_id = d.gp_segment_id)
+            {order_by_clause}
+            DISTRIBUTED BY ({dist_key_col})
+        """.format(**locals())
+        plpy_execute(one_hot_sql, debug=True)
+
+#                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
+
+        rows_per_seg_tbl = unique_string(desp='rows_per_seg')
+        start_rows_tbl = unique_string(desp='start_rows')
+
+        #  Generate rows_per_segment table; this small table will
+        #  just have one row on each segment containing the # of
+        #  rows on that segment in the norm_tbl
+        sql = """
+            CREATE TEMP TABLE {rows_per_seg_tbl} AS SELECT
+                COUNT(*) as rows_per_seg,
+                {dist_key_col}
+            FROM {norm_tbl}
+            GROUP BY {dist_key_col}
+            DISTRIBUTED BY ({dist_key_col})
+        """.format(**locals())
+
+        plpy_execute(sql)
+
+        #  Generate start_rows_tbl from rows_per_segment table.
+        #  This assigns a start_row number for each segment based on
+        #  the sum of all rows in previous segments.  These will be
+        #  added to the row numbers within each segment to get an
+        #  absolute index into the table.  All of this is to accomplish
+        #  the equivalent of ROW_NUMBER() OVER() on the whole table,
+        #  but this way is much faster because we don't have to do an
+        #  N:1 Gather Motion (moving entire table to a single segment
+        #  and scanning through it).
+        #
+        #  Note:  the order in which we process the segments doesn't
+        #  matter to us; it will only affect which range of numbers
+        #  within the entire table range is assigned to which segment,
+        #  which we don't care about.
+        sql = """
+            CREATE TEMP TABLE {start_rows_tbl} AS SELECT
+                {dist_key_col},
+                SUM(rows_per_seg) OVER () - rows_per_seg AS start_row
+            FROM {rows_per_seg_tbl}
+            DISTRIBUTED BY ({dist_key_col})
+        """.format(**locals())
+
+        plpy_execute(sql, debug=True)
+
+        plpy.execute("DROP TABLE {0}".format(rows_per_seg_tbl))
 
         self.buffer_size = self._get_buffer_size(num_segments)
 
+        # The query below assigns slot_id's to each row within
+        #  a segment, computes a row_id by adding start_row for
+        #  that segment to it, then divides by buffer_size to make
+        #  this into a buffer_id
+        # ie:
+        #  buffer_id = row_id / buffer_size
+        #     row_id = start_row + slot_id
+        #    slot_id = ROW_NUMBER() OVER(PARTITION BY <seg id>)::INTEGER
+        #
+        #   Instead of partitioning by gp_segment_id itself, we
+        # use __dist_key__ col instead.  This is the same partition,
+        # since there's a 1-to-1 mapping between the columns; but
+        # using __dist_key__ avoids an extra Redistribute Motion.
+        #
+        # Note: even though the ordering of these two columns is
+        #  different, this doesn't matter as each segment is being
+        #  numbered separately (only the start_row is different,
+        #  and those are fixed to the correct segments by the JOIN
+        #  condition.
+
         sql = """
-        CREATE TEMP TABLE {normalized_tbl} AS
-            SELECT {dist_key_col_comma}
-                x_norm,
-                y, 
-                ((slot_id * {num_segments} + gp_segment_id)::INTEGER / {self.buffer_size})::INTEGER AS buffer_id
-                    FROM {norm_tbl} ORDER BY buffer_id
-                        DISTRIBUTED BY ({dist_key_col})
+        CREATE TEMP TABLE {normalized_tbl} AS SELECT
+            {dist_key_col},
+            x_norm,
+            y, 
+            (   start_row +
+                (
+                 ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
+                )::INTEGER / {self.buffer_size}
+            ) AS buffer_id
+        FROM {norm_tbl} JOIN {start_rows_tbl}
+            USING ({dist_key_col})
+        ORDER BY buffer_id
+        DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
         plpy_execute(sql)   # label buffer_id's
 
-        plpy.execute("DROP TABLE {norm_tbl}; SET optimizer=off; SET enable_hashagg=off".format(**locals()))
+        # A note on DISTRIBUTED BY (__dist_key__) in above query:
+        #
+        #     In the next query, we'll be doing the actual batching.  Due
+        #  to the GROUP BY, gpdb will Redistribute on buffer_id.  We could
+        #  avoid this by using DISTRIBUTED BY (buffer_id) in the above
+        #  (buffer-labelling) query.  But this also causes the GROUP BY
+        #  to use single-stage GroupAgg instead of multistage GroupAgg,
+        #  which for unknown reasons is *much* slower and often runs out
+        #  of VMEM unless it's set very high!
+        #
+        #  Therefore, we just use __dist_key__ instead.
 
+        plpy.execute("DROP TABLE {norm_tbl}, {start_rows_tbl}".format(**locals()))
+        plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
+
+        # Run actual batching query
         make_buffer_id = '' 
         dist_by_buffer_id = 'DISTRIBUTED BY (buffer_id)'
         self.run_batch_rows_query(locals())
@@ -468,6 +559,18 @@ class InputDataPreprocessorDL(object):
         plpy.execute("ANALYZE {batched_table}".format(**locals()))
 
         # Redistribute from buffer_id to dist_key
+        #
+        #  This has to be separate from the batching query, because
+        #   we found that adding DISTRIBUTED BY (dist_key) to that
+        #   query causes it to run out of VMEM on large datasets such
+        #   as places100.  Possibly this is because the memory available
+        #   for GroupAgg has to be shared with an extra slice if they
+        #   are part of the same query.
+        #
+        #  We also tried adding this to the BYTEA conversion query, but
+        #   that resulted in slower performance than just keeping it
+        #   separate.
+        #
         sql = """CREATE TEMP TABLE {batched_table}_dist_key AS
                     SELECT {dist_key_col}, t.*
                         FROM {batched_table} t
