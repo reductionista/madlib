@@ -734,27 +734,9 @@ ORDER BY 1,2;
 $$ LANGUAGE PLPYTHONU IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
 
-----------------------------
--- agg that calls a slightly tweaked version of array_cat copied from gpdb source
-----------------------------
-
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.gpdb_array_cat(REAL[],  REAL[])
-RETURNS REAL[]
-AS
-'MODULE_PATHNAME', 'gpdb_array_cat'
-LANGUAGE C IMMUTABLE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
-
-DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.gpdb_agg_array_concat(REAL[]);
-CREATE AGGREGATE MADLIB_SCHEMA.gpdb_agg_array_concat(REAL[]) (
-   SFUNC = MADLIB_SCHEMA.gpdb_array_cat,
-   STYPE = REAL[],
-   PREFUNC = MADLIB_SCHEMA.gpdb_array_cat
-);
-
-CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.to_bytea(ANYARRAY)
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.array_to_bytea(ANYARRAY)
 RETURNS BYTEA
 AS
-'MODULE_PATHNAME', 'to_bytea'
+'MODULE_PATHNAME', 'array_to_bytea'
 LANGUAGE C IMMUTABLE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');

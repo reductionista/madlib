@@ -218,14 +218,15 @@ class InputDataPreprocessorDL(object):
                 {self.schema_madlib}.agg_array_concat(
                     ARRAY[y]) AS {y},
                 COUNT(*) AS count
-            FROM {normalized_tbl} GROUP BY buffer_id
+            FROM {normalized_tbl}
+            GROUP BY buffer_id
             {dist_by_buffer_id}
         """.format(x=MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL,
                y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
                FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                **local_vars)
 
-        plpy_execute(batching_query)
+        plpy_execute(batching_query, debug=True)
  
     def convert_to_bytea(self, local_vars):
         """
@@ -234,8 +235,8 @@ class InputDataPreprocessorDL(object):
         bytea_query = """
             CREATE TABLE {self.output_table} AS SELECT
                 {dist_key_col_comma}
-                {self.schema_madlib}.to_bytea({x}) AS {x},
-                {self.schema_madlib}.to_bytea({y}) AS {y},
+                {self.schema_madlib}.array_to_bytea({x}) AS {x},
+                {self.schema_madlib}.array_to_bytea({y}) AS {y},
                 ARRAY[count,{ind_shape}]::SMALLINT[] AS {ind_shape_col},
                 ARRAY[count,{dep_shape}]::SMALLINT[] AS {dep_shape_col},
                 buffer_id
@@ -339,13 +340,11 @@ class InputDataPreprocessorDL(object):
         #   need to do some extra work to ensure that happens.
 
         if self.distribution_rules == 'all_segments':
+            all_segments = True
             self.distribution_rules = '$__madlib__$all_segments$__madlib__$'
-            where_clause = ''
             num_segments = get_seg_number()
-            join_key = 't.{{join_id_col}} % {num_segments}'.format(**locals())
         else:
-            join_key = None
-            gpu_join_key = '({self.gpu_config})[t.{{join_id_col}} % {num_segments} + 1]'
+            all_segments = False
 
         if self.distribution_rules == 'gpu_segments':
             gpu_info_table = unique_string(desp='gpu_info')
@@ -377,10 +376,8 @@ class InputDataPreprocessorDL(object):
             self.distribution_rules = "ARRAY{0}".format(sorted(segment_ids_result['dbid']))
 
             num_segments = segment_ids_result['count']
-            where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
-            join_key = gpu_join_key.format(**locals())
 
-        elif not join_key:  # Read from a table with dbids to distribute the data
+        elif not all_segments:  # Read from a table with dbids to distribute the data
             self._validate_distribution_table()
             gpu_query = """
                 SELECT array_agg(content) as gpu_config,
@@ -390,10 +387,13 @@ class InputDataPreprocessorDL(object):
             """.format(**locals())
             gpu_query_result = plpy.execute(gpu_query)[0]
             self.gpu_config = "ARRAY{0}".format(sorted(gpu_query_result['gpu_config']))
-            where_clause = "WHERE gp_segment_id=ANY({self.gpu_config})".format(**locals())
             num_segments = plpy.execute("SELECT count(*) as count FROM {self.distribution_rules}".format(**locals()))[0]['count']
-            join_key = gpu_join_key.format(**locals())
             self.distribution_rules = "ARRAY{0}".format(sorted(gpu_query_result['dbid']))
+
+        join_key = 't.buffer_id % {num_segments}'.format(**locals())
+
+        if not all_segments:
+            join_key = '({self.gpu_config})[{join_key} + 1]'.format(**locals())
 
         # Create large temp table such that there is atleast 1 row on each segment
         # Using 999999 would distribute data(atleast 1 row on each segment) for
@@ -417,7 +417,6 @@ class InputDataPreprocessorDL(object):
                 CREATE TEMP TABLE {dist_key_tbl} AS
                 SELECT min({dist_key_col}) AS {dist_key_col}
                 FROM {series_tbl}
-                {where_clause}
                 GROUP BY gp_segment_id
                 DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
@@ -451,7 +450,7 @@ class InputDataPreprocessorDL(object):
             {order_by_clause}
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
-        plpy_execute(one_hot_sql)
+        plpy_execute(one_hot_sql, debug=True)
 
 #                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
 
@@ -531,7 +530,7 @@ class InputDataPreprocessorDL(object):
         DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy_execute(sql)   # label buffer_id's
+        plpy_execute(sql, debug=True)   # label buffer_id's
 
         # A note on DISTRIBUTED BY (__dist_key__) in above query:
         #
@@ -554,6 +553,12 @@ class InputDataPreprocessorDL(object):
         self.run_batch_rows_query(locals())
 
         plpy.execute("DROP TABLE {0}".format(normalized_tbl))
+
+        if not all_segments: # remove any segments we don't plan to use
+            sql = """
+                DELETE FROM {dist_key_tbl}
+                    WHERE NOT gp_segment_id = ANY({self.gpu_config})
+            """.format(**locals())
 
         plpy.execute("ANALYZE {dist_key_tbl}".format(**locals()))
         plpy.execute("ANALYZE {batched_table}".format(**locals()))
@@ -580,7 +585,7 @@ class InputDataPreprocessorDL(object):
               """.format(**locals())
 
         # match buffer_id's with dist_keys
-        plpy_execute(sql.format(join_id_col='buffer_id'))
+        plpy_execute(sql, debug=True)
 
         sql = """DROP TABLE {batched_table}, {dist_key_tbl};
                  ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
