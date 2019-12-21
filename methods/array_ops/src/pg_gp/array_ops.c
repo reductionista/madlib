@@ -2107,9 +2107,9 @@ General_Array_to_Cumulative_Array(
     return pgarray;
 }
 
-PG_FUNCTION_INFO_V1(to_bytea);
+PG_FUNCTION_INFO_V1(array_to_bytea);
 Datum
-to_bytea(PG_FUNCTION_ARGS)
+array_to_bytea(PG_FUNCTION_ARGS)
 {
     ArrayType *a = PG_GETARG_ARRAYTYPE_P(0);
     Oid element_type = ARR_ELEMTYPE(a);

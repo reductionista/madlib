@@ -246,7 +246,7 @@ class InputDataPreprocessorDL(object):
             y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
             FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
             **local_vars)
-        plpy_execute(bytea_query) 
+        plpy_execute(bytea_query, debug=True)
 
     def input_preprocessor_dl(self, order_by_random=True):
         """
@@ -469,7 +469,7 @@ class InputDataPreprocessorDL(object):
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy_execute(sql)
+        plpy_execute(sql, debug=True)
 
         #  Generate start_rows_tbl from rows_per_segment table.
         #  This assigns a start_row number for each segment based on
@@ -519,7 +519,8 @@ class InputDataPreprocessorDL(object):
         CREATE TEMP TABLE {normalized_tbl} AS SELECT
             {dist_key_col},
             x_norm,
-            y, 
+            y,
+            (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ))::INTEGER as slot_id,
             ((start_row +
                ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
              )::INTEGER / {self.buffer_size}
@@ -527,7 +528,7 @@ class InputDataPreprocessorDL(object):
         FROM {norm_tbl} JOIN {start_rows_tbl}
             USING ({dist_key_col})
         ORDER BY buffer_id
-        DISTRIBUTED BY ({dist_key_col})
+        DISTRIBUTED BY (slot_id)
         """.format(**locals())
 
         plpy_execute(sql, debug=True)   # label buffer_id's
@@ -542,7 +543,8 @@ class InputDataPreprocessorDL(object):
         #  which for unknown reasons is *much* slower and often runs out
         #  of VMEM unless it's set very high!
         #
-        #  Therefore, we just use __dist_key__ instead.
+        #  Distributing by (__dist_key__) doesn't seem to work either, so
+        #   just using random distribution.
 
         plpy.execute("DROP TABLE {norm_tbl}, {start_rows_tbl}".format(**locals()))
         plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
