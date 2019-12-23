@@ -522,7 +522,7 @@ class InputDataPreprocessorDL(object):
             y,
             (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ))::INTEGER as slot_id,
             ((start_row +
-               ROW_NUMBER() OVER( PARTITION BY {dist_key_col} )
+               (ROW_NUMBER() OVER( PARTITION BY {dist_key_col} ) - 1)
              )::INTEGER / {self.buffer_size}
             ) AS buffer_id
         FROM {norm_tbl} JOIN {start_rows_tbl}
