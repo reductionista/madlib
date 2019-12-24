@@ -318,8 +318,6 @@ class InputDataPreprocessorDL(object):
 
             plpy_execute(one_hot_sql)
 
-            # plpy.execute("SET enable_hashagg=off")
-
             self.buffer_size = self._get_buffer_size(1)
 
             make_buffer_id = 'row_id / {0} AS '.format(self.buffer_size)
@@ -547,7 +545,6 @@ class InputDataPreprocessorDL(object):
         #  of VMEM unless it's set very high!
 
         plpy.execute("DROP TABLE {norm_tbl}, {start_rows_tbl}".format(**locals()))
-        # plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
         # Run actual batching query
         make_buffer_id = ''
