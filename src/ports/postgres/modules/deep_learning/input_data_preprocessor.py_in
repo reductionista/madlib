@@ -29,7 +29,6 @@ from internal.db_utils import get_distinct_col_levels
 from internal.db_utils import quote_literal
 from internal.db_utils import get_product_of_dimensions
 from utilities.minibatch_preprocessing import MiniBatchBufferSizeCalculator
-from utilities.control import MinWarning
 from utilities.control import OptimizerControl
 from utilities.control import HashaggControl
 from utilities.utilities import _assert
@@ -66,7 +65,7 @@ def plpy_execute(sql, *args, **kwargs):
         start = time.time()
     plpy.execute(sql, *args)
     if debug:
-        plpy.info("Query took {}s".format(time.time() - start))
+        plpy.info("Query took {0}s".format(time.time() - start))
 
 class InputDataPreprocessorDL(object):
     def __init__(self, schema_madlib, source_table, output_table,
@@ -229,7 +228,10 @@ class InputDataPreprocessorDL(object):
                FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
                **local_vars)
 
-        plpy_execute(batching_query, debug=True)
+        # Disable hashagg since large number of arrays being concatenated
+        # could result in excessive memory usage.
+        with HashaggControl(False):
+            plpy_execute(batching_query)
  
     def convert_to_bytea(self, local_vars):
         """
@@ -249,7 +251,7 @@ class InputDataPreprocessorDL(object):
             y=MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL,
             FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE,
             **local_vars)
-        plpy_execute(bytea_query, debug=True)
+        plpy_execute(bytea_query)
 
     def input_preprocessor_dl(self, order_by_random=True):
         """
@@ -323,10 +325,7 @@ class InputDataPreprocessorDL(object):
             make_buffer_id = 'row_id / {0} AS '.format(self.buffer_size)
 
             dist_by_buffer_id = ''
-            # Disable hashagg since large number of arrays being concatenated
-            # could result in excessive memory usage.
-            with HashaggControl(False):
-                self.run_batch_rows_query(locals())
+            self.run_batch_rows_query(locals())
             plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
             dist_by_dist_key = ''
@@ -535,9 +534,9 @@ class InputDataPreprocessorDL(object):
         DISTRIBUTED BY (slot_id)
         """.format(**locals())
 
-        plpy_execute(sql, debug=True)   # label buffer_id's
+        plpy_execute(sql)   # label buffer_id's
 
-        # A note on DISTRIBUTED BY (__dist_key__) in above query:
+        # A note on DISTRIBUTED BY (slot_id) in above query:
         #
         #     In the next query, we'll be doing the actual batching.  Due
         #  to the GROUP BY, gpdb will Redistribute on buffer_id.  We could
@@ -557,10 +556,7 @@ class InputDataPreprocessorDL(object):
         # Disable optimizer (ORCA) for platforms that use it
         # since we want to use a groupagg instead of hashagg
         with OptimizerControl(False):
-            # Disable hashagg since large number of arrays being concatenated
-            # could result in excessive memory usage.
-            with HashaggControl(False):
-                self.run_batch_rows_query(locals())
+            self.run_batch_rows_query(locals())
 
         plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
@@ -595,7 +591,7 @@ class InputDataPreprocessorDL(object):
               """.format(**locals())
 
         # match buffer_id's with dist_keys
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         sql = """DROP TABLE {batched_table}, {dist_key_tbl};
                  ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
