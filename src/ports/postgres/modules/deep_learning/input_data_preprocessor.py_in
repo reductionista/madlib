@@ -29,6 +29,9 @@ from internal.db_utils import get_distinct_col_levels
 from internal.db_utils import quote_literal
 from internal.db_utils import get_product_of_dimensions
 from utilities.minibatch_preprocessing import MiniBatchBufferSizeCalculator
+from utilities.control import MinWarning
+from utilities.control import OptimizerControl
+from utilities.control import HashaggControl
 from utilities.utilities import _assert
 from utilities.utilities import add_postfix
 from utilities.utilities import is_platform_pg
@@ -301,8 +304,8 @@ class InputDataPreprocessorDL(object):
             #   1-hot-encode/normalize + batching + bytea conversion
             #
 
-                  # see note in gpdb code branch (lower down) on
-                  # 1-hot-encoding of dependent var
+            # see note in gpdb code branch (lower down) on
+            # 1-hot-encoding of dependent var
             one_hot_sql = """
                 CREATE TEMP TABLE {normalized_tbl} AS SELECT
                     (ROW_NUMBER() OVER({order_by_clause}) - 1)::INTEGER as row_id,
@@ -313,14 +316,17 @@ class InputDataPreprocessorDL(object):
 
             plpy_execute(one_hot_sql)
 
-            plpy.execute("SET enable_hashagg=off")
+            # plpy.execute("SET enable_hashagg=off")
 
             self.buffer_size = self._get_buffer_size(1)
 
             make_buffer_id = 'row_id / {0} AS '.format(self.buffer_size)
 
             dist_by_buffer_id = ''
-            self.run_batch_rows_query(locals())
+            # Disable hashagg since large number of arrays being concatenated
+            # could result in excessive memory usage.
+            with HashaggControl(False):
+                self.run_batch_rows_query(locals())
             plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
             dist_by_dist_key = ''
@@ -450,16 +456,14 @@ class InputDataPreprocessorDL(object):
             {order_by_clause}
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
-        plpy_execute(one_hot_sql, debug=True)
-
-#                (ROW_NUMBER() OVER(PARTITION BY d.{dist_key_col} {order_by_clause})-1)::INTEGER as slot_id
+        plpy_execute(one_hot_sql)
 
         rows_per_seg_tbl = unique_string(desp='rows_per_seg')
         start_rows_tbl = unique_string(desp='start_rows')
 
         #  Generate rows_per_segment table; this small table will
-        #  just have one row on each segment containing the # of
-        #  rows on that segment in the norm_tbl
+        #  just have one row on each segment containing the number
+        #  of rows on that segment in the norm_tbl
         sql = """
             CREATE TEMP TABLE {rows_per_seg_tbl} AS SELECT
                 COUNT(*) as rows_per_seg,
@@ -469,7 +473,7 @@ class InputDataPreprocessorDL(object):
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy_execute(sql, debug=True)
+        plpy_execute(sql)
 
         #  Generate start_rows_tbl from rows_per_segment table.
         #  This assigns a start_row number for each segment based on
@@ -502,7 +506,7 @@ class InputDataPreprocessorDL(object):
         # ie:
         #  buffer_id = row_id / buffer_size
         #     row_id = start_row + slot_id
-        #    slot_id = ROW_NUMBER() OVER(PARTITION BY <seg id>)::INTEGER
+        #    slot_id = ROW_NUMBER() OVER(PARTITION BY <dist key>)::INTEGER
         #
         #   Instead of partitioning by gp_segment_id itself, we
         # use __dist_key__ col instead.  This is the same partition,
@@ -542,17 +546,21 @@ class InputDataPreprocessorDL(object):
         #  to use single-stage GroupAgg instead of multistage GroupAgg,
         #  which for unknown reasons is *much* slower and often runs out
         #  of VMEM unless it's set very high!
-        #
-        #  Distributing by (__dist_key__) doesn't seem to work either, so
-        #   just using random distribution.
 
         plpy.execute("DROP TABLE {norm_tbl}, {start_rows_tbl}".format(**locals()))
-        plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
+        # plpy.execute("SET optimizer=off; SET enable_hashagg=off".format(**locals()))
 
         # Run actual batching query
         make_buffer_id = ''
         dist_by_buffer_id = 'DISTRIBUTED BY (buffer_id)'
-        self.run_batch_rows_query(locals())
+
+        # Disable optimizer (ORCA) for platforms that use it
+        # since we want to use a groupagg instead of hashagg
+        with OptimizerControl(False):
+            # Disable hashagg since large number of arrays being concatenated
+            # could result in excessive memory usage.
+            with HashaggControl(False):
+                self.run_batch_rows_query(locals())
 
         plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
