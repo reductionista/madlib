@@ -46,6 +46,7 @@ from utilities.utilities import validate_module_input_params
 from utilities.utilities import get_seg_number
 from utilities.validate_args import input_tbl_valid
 from utilities.validate_args import get_expr_type
+from utilities.utilities import plpy_execute_debug
 
 from madlib_keras_helper import *
 import time
@@ -286,7 +287,7 @@ class InputDataPreprocessorDL(object):
                 FROM {self.source_table}
             """.format(**locals())
 
-            plpy.execute(one_hot_sql)
+            plpy_execute_debug(one_hot_sql)
 
             self.buffer_size = self._get_buffer_size(1)
 
@@ -300,7 +301,7 @@ class InputDataPreprocessorDL(object):
             # could result in excessive memory usage.
             with HashaggControl(False):
                 # Batch rows with GROUP BY
-                plpy.execute(batching_query.format(**locals()))
+                plpy_execute_debug(batching_query.format(**locals()))
 
             plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
@@ -386,7 +387,7 @@ class InputDataPreprocessorDL(object):
                 DISTRIBUTED BY ({dist_key_col})
             """.format(**locals())
 
-        plpy.execute(query)
+        plpy_execute_debug(query)
 
         # Used in locals() to format queries, including template queries
         #  bytea_query & batching_query defined in section common to
@@ -404,7 +405,7 @@ class InputDataPreprocessorDL(object):
                 DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy.execute(dist_key_query)
+        plpy_execute_debug(dist_key_query)
 
         plpy.execute("DROP TABLE {0}".format(series_tbl))
 
@@ -433,7 +434,7 @@ class InputDataPreprocessorDL(object):
             {order_by_clause}
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
-        plpy.execute(one_hot_sql)
+        plpy_execute_debug(one_hot_sql)
 
         rows_per_seg_tbl = unique_string(desp='rows_per_seg')
         start_rows_tbl = unique_string(desp='start_rows')
@@ -450,7 +451,7 @@ class InputDataPreprocessorDL(object):
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy.execute(sql)
+        plpy_execute_debug(sql)
 
         #  Generate start_rows_tbl from rows_per_segment table.
         #  This assigns a start_row number for each segment based on
@@ -470,7 +471,7 @@ class InputDataPreprocessorDL(object):
             DISTRIBUTED BY ({dist_key_col})
         """.format(**locals())
 
-        plpy.execute(sql)
+        plpy_execute_debug(sql)
 
         plpy.execute("DROP TABLE {0}".format(rows_per_seg_tbl))
 
@@ -512,7 +513,7 @@ class InputDataPreprocessorDL(object):
         DISTRIBUTED BY (slot_id)
         """.format(**locals())
 
-        plpy.execute(sql)   # label buffer_id's
+        plpy_execute_debug(sql)   # label buffer_id's
 
         # A note on DISTRIBUTED BY (slot_id) in above query:
         #
@@ -531,7 +532,7 @@ class InputDataPreprocessorDL(object):
         with OptimizerControl(False):
             with HashaggControl(False):
                 # Run actual batching query
-                plpy.execute(batching_query.format(**locals()))
+                plpy_execute_debug(batching_query.format(**locals()))
 
         plpy.execute("DROP TABLE {0}".format(normalized_tbl))
 
@@ -566,7 +567,7 @@ class InputDataPreprocessorDL(object):
               """.format(**locals())
 
         # match buffer_id's with dist_keys
-        plpy.execute(sql)
+        plpy_execute_debug(sql)
 
         sql = """DROP TABLE {batched_table}, {dist_key_tbl};
                  ALTER TABLE {batched_table}_dist_key RENAME TO {batched_table}
@@ -574,7 +575,7 @@ class InputDataPreprocessorDL(object):
         plpy.execute(sql)
 
         # Convert batched table to BYTEA and output as final (permanent) table
-        plpy.execute(bytea_query.format(**locals()))
+        plpy_execute_debug(bytea_query.format(**locals()))
 
         plpy.execute("DROP TABLE {0}".format(batched_table))
 
@@ -619,7 +620,7 @@ class InputDataPreprocessorDL(object):
                        num_classes_colname=NUM_CLASSES_COLNAME,
                        internal_gpu_config=INTERNAL_GPU_CONFIG,
                        FLOAT32_SQL_TYPE=FLOAT32_SQL_TYPE)
-        plpy.execute(query)
+        plpy_execute_debug(query)
 
     def _validate_args(self):
         validate_module_input_params(
