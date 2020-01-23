@@ -148,6 +148,31 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     validation_set_provided = bool(validation_table)
     validation_metrics = []; validation_loss = []
 
+    weights_table = unique_string(desp='weights')
+    segment_weights = unique_string(desp='segment_weights')
+
+    sql = """
+        CREATE TEMP TABLE {weights_table} AS SELECT $1 AS weights
+    """.format(**locals())
+    plan = plpy.prepare(sql, ['BYTEA'])
+    plpy.execute(plan, [serialized_weights])
+
+    sql = """
+        CREATE TEMP TABLE {segment_weights} AS
+        SELECT w.weights, d.__dist_key__ FROM
+            {weights_table} w,
+            (
+                SELECT gp_segment_id, __dist_key__
+                FROM {source_table}
+                GROUP BY gp_segment_id, __dist_key__
+            ) d
+        DISTRIBUTED BY (__dist_key__);
+    """.format(**locals())
+
+    plpy.execute(sql)
+
+    plpy.execute("DROP TABLE {}".format(weights_table))
+
     # Prepare the SQL for running distributed training via UDA
     compile_params_to_pass = "$madlib$" + compile_params + "$madlib$"
     fit_params_to_pass = "$madlib$" + fit_params + "$madlib$"
@@ -166,13 +191,12 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             {segments_per_host},
             ARRAY{images_per_seg_train},
             {use_gpus}::BOOLEAN,
-            ARRAY{accessible_gpus_for_seg}
-            -- {schema_madlib}.get_initial_weights(NULL, $MAD${model_arch}$MAD$, NULL, FALSE, FALSE, NULL),
-            wt.weights,
+            ARRAY{accessible_gpus_for_seg},
+            sw.weights,
             $1
         ) AS iteration_result
         FROM {source_table} src
-        JOIN weights_for_join wt USING(__dist_key__)
+        JOIN {segment_weights} sw USING(__dist_key__)
         """.format(**locals()), ["boolean"])
 
     # Define the state for the model and loss/metric storage lists
@@ -232,6 +256,8 @@ def fit(schema_madlib, source_table, model, model_arch_table,
                 metrics_elapsed_end_time-metrics_elapsed_start_time)
         plpy.info("\n"+info_str)
     end_training_time = datetime.datetime.now()
+
+    plpy.execute("DROP TABLE {}".format(segment_weights))
 
     version = madlib_version(schema_madlib)
     src_summary_dict = get_source_summary_table_dict(fit_validator)
