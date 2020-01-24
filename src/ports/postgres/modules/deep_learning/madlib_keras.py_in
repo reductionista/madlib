@@ -145,8 +145,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         unnest_comma = 'unnest(ARRAY{0}) AS {1},'.format(dist_key_mapping, DISTRIBUTION_KEY_COLNAME)
         join_cond = 'USING({0})'.format(DISTRIBUTION_KEY_COLNAME)
 
-    serialized_weights = get_initial_weights(model, model_arch, model_weights,
-                                             warm_start, use_gpus, accessible_gpus_for_seg)
+    serialized_weights = get_initial_weights(model, model_arch, model_weights, warm_start)
 
     if validation_table:
         seg_ids_val, images_per_seg_val = get_image_count_per_seg_for_minibatched_data_from_db(validation_table)
@@ -355,7 +354,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     reset_cuda_env(original_cuda_env)
 
 def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
-                        use_gpus, accessible_gpus_for_seg, **kwargs):
+                        **kwargs):
     """
         If warm_start is True, return back initial weights from model table.
         If warm_start is False, first try to get the weights from model_arch

@@ -316,6 +316,13 @@ class FitMultipleModel():
                                """.format(self=self)
 
         plpy.execute(info_table_create_query)
+
+        # Setting CUDA env on the master
+        if is_platform_pg():
+            get_device_name_and_set_cuda_env(self.accessible_gpus_for_seg[0], None)
+        else:
+            get_device_name_and_set_cuda_env(0, None)
+
         for mst in self.msts:
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
@@ -329,9 +336,7 @@ class FitMultipleModel():
             serialized_weights = get_initial_weights(self.model_output_table,
                                                      model_arch,
                                                      model_weights,
-                                                     mst['mst_key'] in warm_start_msts,
-                                                     self.use_gpus,
-                                                     self.accessible_gpus_for_seg
+                                                     mst['mst_key'] in warm_start_msts
                                                      )
             model_size = sys.getsizeof(serialized_weights) / 1024.0
 
@@ -359,19 +364,28 @@ class FitMultipleModel():
                            model_size=model_size,
                            metrics_type=metrics_type)
             plpy.execute(info_table_insert_query)
-
             if not mst['mst_key'] in warm_start_msts:
+                # Calling get_initial_weights() to initialize weights from
+                # model arch instead of passing the serialized_weights, as
+                # for >=GPDB6/PG9 this may fail with out of memory since
+                # the query plan would have the weights embedded inside the
+                # plan itself that would bloat it up(for huge weights) to hit
+                # the 1GB limit when dispatching the query plan to segments.
+                # Always passing in model_table, weights as NULL and warm_start
+                # as False so as to get initial weights from model_arch
                 output_table_insert_query = """
                                     INSERT INTO {self.model_output_table}(
                                         {self.mst_key_col}, {self.model_weights_col},
                                         {self.model_arch_col})
-                                    VALUES ({mst_key}, $1, $2)
+                                    SELECT {mst_key},
+                                        {self.schema_madlib}.get_initial_weights(NULL::TEXT, $${model_arch}$$::TEXT, NULL, FALSE),
+                                        $1
                                        """.format(self=self,
-                                                  mst_key=mst[self.mst_key_col])
+                                                  mst_key=mst[self.mst_key_col],
+                                                  model_arch=model_arch)
                 output_table_insert_query_prepared = plpy.prepare(
-                    output_table_insert_query, ["bytea", "json"])
-                plpy.execute(output_table_insert_query_prepared, [
-                             serialized_weights, model_arch])
+                    output_table_insert_query, ["json"])
+                plpy.execute(output_table_insert_query_prepared, [model_arch])
 
     def create_model_summary_table(self):
         if self.warm_start:

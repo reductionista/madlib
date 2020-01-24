@@ -2137,3 +2137,13 @@ RETURNS VARCHAR AS $$
 $$ LANGUAGE sql IMMUTABLE
 m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
 
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.get_initial_weights(
+    model_table TEXT,
+    model_arch TEXT,
+    serialized_weights BYTEA,
+    warm_start BOOLEAN
+) RETURNS BYTEA AS $$
+    PythonFunctionBodyOnly(`deep_learning', `madlib_keras')
+    with AOControl(False):
+        return madlib_keras.get_initial_weights(**globals())
+$$ LANGUAGE plpythonu;
