@@ -1,0 +1,6 @@
+for line in sys.stdin:
+    seg_id = line.split(',')[0]
+    fname = '/tmp/weights' + seg_id
+    fd = open(fname, 'w')
+    fd.write(line)
+    fd.close()

@@ -1,0 +1,8 @@
+import sys
+import os
+
+for line in sys.stdin:
+    seg_id, __dist_key__ = line.split(',')
+    fname = '/tmp/weights' + seg_id
+    fd = open(fname,'w')
+    fd.close()
