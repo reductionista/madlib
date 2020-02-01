@@ -246,11 +246,11 @@ class FitMultipleModel():
     def create_mst_schedule_table(self, mst_row):
         mst_temp_query = """
                          CREATE TABLE {self.mst_current_schedule_tbl}
-                                ({self.model_id_col} INTEGER,
+                                 ({self.mst_key_col} INTEGER),
+                                {self.model_id_col} INTEGER,
                                  {self.compile_params_col} VARCHAR,
                                  {self.fit_params_col} VARCHAR,
                                  {dist_key_col} INTEGER,
-                                 {self.mst_key_col} INTEGER)
                                  DISTRIBUTED BY ({dist_key_col})
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
@@ -320,7 +320,7 @@ class FitMultipleModel():
 
         self.define_external_tables()
 
-        for mst in self.msts:
+        for i, mst in enumerate(self.msts):
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
 
@@ -365,13 +365,19 @@ class FitMultipleModel():
             plpy.execute(info_table_insert_query)
 
             if not mst['mst_key'] in warm_start_msts:
+                seg_id = self.dist_key_mapping[i]
+                dist_key = self.dist_keys[i]
+                mst_key = mst[self.mst_key_col]
                 output_table_insert_query = """
                                     INSERT INTO {self.weights_to_update_tbl}_write (
-                                        {self.mst_key_col}, {self.model_weights_col},
-                                        {self.model_arch_col})
-                                    VALUES ({mst_key}, $1, $2)
-                                       """.format(self=self,
-                                                  mst_key=mst[self.mst_key_col])
+                                        seg_id,
+                                        {self.mst_key_col},
+                                        {self.model_weights_col},
+                                        {self.model_arch_col},
+                                        {self.dist_key_col}
+                                    )
+                                    VALUES ({seg_id}, $1, {mst_key}, $2, {dist_key})
+                                       """.format(**locals())
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
@@ -481,30 +487,55 @@ class FitMultipleModel():
                 self.update_info_table(mst, False)
 
     def define_external_tables(self):
-        global disk_key_col
+        global dist_key_col
+
+        # TODO: query gp_segment_configurations
+        segment_hosts = ['localhost', 'localhost', 'localhost']
 
         create_mst_weights_to_update_tbl_write_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_write;
                 CREATE WRITABLE EXTERNAL WEB TABLE
                     {self.weights_to_update_tbl}_write(
                         seg_id INTEGER,
-                        model_weights BYTEA,
-                        mst_key TEXT,
+                        {self.mst_key_col} TEXT,
+                        {self.model_weights_col} BYTEA,
+                        {self.model_arch_col} JSON,
                         {dist_key_col} INTEGER
                     )
-                EXECUTE "/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'weights_output'"
+                EXECUTE "/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'model_output'"
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
 
+        create_weights_to_update_tbl_query = """
+            DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_read;
+            CREATE READABLE EXTERNAL TABLE {self.weights_to_update_tbl}_read(
+                seg_id INTEGER,
+                {self.mst_key_col} TEXT,
+                {self.model_weights_col} BYTEA,
+                {self.model_arch_col} JSON,
+                {dist_key_col} INTEGER
+            )
+            LOCATION ("""
+
+        locations = []
+        for seg_id, hostname in enumerate(segment_hosts):
+            locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
+
+        create_weights_to_update_tbl_query += ','.join(locations)
+        create_weights_to_update_tbl_query += ") FORMAT 'CSV'"
+
+        plpy.execute(create_weights_to_update_tbl_query.format(**locals()))
+
         create_mst_weights_write_tbl_query = """
-            DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl}_write; CREATE WRITABLE EXTERNAL WEB TABLE
+            DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl}_write; 
+            CREATE WRITABLE EXTERNAL WEB TABLE
                 {self.mst_weights_tbl}_write(
                     seg_id INTEGER,
+                    {self.mst_key_col} INTEGER,
                     model_id INTEGER,
                     {self.compile_params_col} TEXT,
                     {self.fit_params_col} TEXT,
                     {dist_key_col} INTEGER,
-                    {self.mst_key_col} INTEGER,
                     model_weights BYTEA,
                     {self.model_arch_col} JSON
                 )
@@ -514,31 +545,29 @@ class FitMultipleModel():
 
         plpy.execute(create_mst_weights_write_tbl_query)
 
-        # TODO: query gp_segment_configurations
-        segment_hosts = ['localhost', 'localhost', 'localhost']
 
-        create_mst_weights_tbl_query = """
+        update_mst_weights_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl}_read;
-        CREATE READABLE EXTERNAL TABLE {self.mst_weights_tbl}_read(
-            seg_id INTEGER,
-                    model_id INTEGER,
-                    compile_params TEXT,
-                    fit_params TEXT,
-                    mst_key INTEGER,
-                    __dist_key__ INTEGER,
-                    model_weights BYTEA,
-                    {self.model_arch_col} JSON
+            CREATE READABLE EXTERNAL TABLE {self.mst_weights_tbl}_read(
+                seg_id INTEGER,
+                mst_key INTEGER,
+                model_id INTEGER,
+                compile_params TEXT,
+                fit_params TEXT,
+                __dist_key__ INTEGER,
+                model_weights BYTEA,
+                {self.model_arch_col} JSON
             )
             LOCATION ("""
 
         locations = []
         for seg_id, hostname in enumerate(segment_hosts):
-            locations.append("'file://{0}/tmp/weights{1}'".format(hostname, seg_id))
+            locations.append("'file://{0}/tmp/model_output{1}'".format(hostname, seg_id))
 
-        create_mst_weights_tbl_query += ','.join(locations)
-        create_mst_weights_tbl_query += ") FORMAT 'CSV'"
+        update_mst_weights_tbl_query += ','.join(locations)
+        update_mst_weights_tbl_query += ") FORMAT 'CSV'"
 
-        plpy.execute(create_mst_weights_tbl_query.format(**locals()))
+        plpy.execute(update_mst_weights_tbl_query.format(**locals()))
 
     def run_training(self):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
@@ -555,7 +584,8 @@ class FitMultipleModel():
 
         insert_mst_weights_query = """
             INSERT INTO {self.mst_weights_tbl}_write
-                SELECT mst_tbl.gp_segment_id, mst_tbl.*,
+                SELECT mst_tbl.gp_segment_id, 
+                       mst_tbl.*,
                        wgh_tbl.{self.model_weights_col},
                        model_arch_tbl.{self.model_arch_col}
                 FROM

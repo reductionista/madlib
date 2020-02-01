@@ -1,6 +1,18 @@
-for line in sys.stdin:
-    seg_id = line.split(',')[0]
-    fname = '/tmp/weights' + seg_id
-    fd = open(fname, 'w')
-    fd.write(line)
-    fd.close()
+import sys
+
+new_row = sys.stdin.readlines()[0]
+seg_id, new_mst_key, _ = new_row.split(',', 3)
+fname_in = sys.argv[1] + seg_id
+fname_out = fname_in + '.tmp'
+fd_out = open(fname_out, 'w')
+fd_in = open(fname_in, 'r')
+
+for row in fd_in:
+    mst_key = row.split(',', 3)[1]
+    if mst_key == new_mst_key:
+        fd_out.write(new_row)
+    else:
+        fd_out.write(row)
+
+fd_in.close()
+fd_out.close()
