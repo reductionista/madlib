@@ -251,6 +251,7 @@ class FitMultipleModel():
                                  {self.fit_params_col} VARCHAR,
                                  {dist_key_col} INTEGER,
                                  {self.mst_key_col} INTEGER)
+                                 DISTRIBUTED BY ({dist_key_col})
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
         for mst, dist_key in zip(mst_row, self.dist_keys):
@@ -316,6 +317,9 @@ class FitMultipleModel():
                                """.format(self=self)
 
         plpy.execute(info_table_create_query)
+
+        self.define_external_tables()
+
         for mst in self.msts:
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
@@ -362,7 +366,7 @@ class FitMultipleModel():
 
             if not mst['mst_key'] in warm_start_msts:
                 output_table_insert_query = """
-                                    INSERT INTO {self.model_output_table}(
+                                    INSERT INTO {self.weights_to_update_tbl}_write (
                                         {self.mst_key_col}, {self.model_weights_col},
                                         {self.model_arch_col})
                                     VALUES ({mst_key}, $1, $2)
@@ -476,44 +480,31 @@ class FitMultipleModel():
             if self.validation_table:
                 self.update_info_table(mst, False)
 
-    def initialize_external_tables(self):
-        define_init_tables_cmd = """
-            DROP EXTERN TABLE init_tables;
-            CREATE EXTERNAL WRITABLE WEB TABLE
-                init_tables(
-                    seg_id INTEGER
-                )
-            EXECUTE (
-                'python /Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/init_tables.py'
-            )
-            FORMAT 'CSV'
-        """
+    def define_external_tables(self):
+        global disk_key_col
 
-        plpy.execute(define_init_tables)
-        query = "INSERT INTO init_tables AS SELECT gp_segment_id FROM gp_dist_random('gp_id')"
-        plpy.execute(query)
+        create_mst_weights_to_update_tbl_write_query = """
+            DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_write;
+                CREATE WRITABLE EXTERNAL WEB TABLE
+                    {self.weights_to_update_tbl}_write(
+                        seg_id INTEGER,
+                        model_weights BYTEA,
+                        mst_key TEXT,
+                        {dist_key_col} INTEGER
+                    )
+                EXECUTE "/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'weights_output'"
+                    FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
+            """.format(**locals())
 
-    def run_training(self):
-        # NOTE: In the DL module, we want to avoid CREATING TEMP tables
-        # (creates a slice which stays until the session is disconnected)
-        # or minimize writing queries that generate plans with Motions (creating
-        # multiple slices on segments).
-        # This is mainly to avoid any GPU memory allocation failures. Since GPU
-        # memory allocation is tied to the process where it is initialized, failures
-        # may occur when a newly created slice(process) tries allocating GPU memory
-        # which is already allocated by a previously created slice(process).
-        # Therefore we want to have queries that do not add motions and all the
-        # sub-queries running Keras/tensorflow operations reuse the same slice(process)
-        # that was used for initializing GPU memory.
         create_mst_weights_write_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl}_write; CREATE WRITABLE EXTERNAL WEB TABLE
                 {self.mst_weights_tbl}_write(
                     seg_id INTEGER,
                     model_id INTEGER,
-                    compile_params TEXT,
-                    fit_params TEXT,
-                    mst_key INTEGER,
-                    __dist_key__ INTEGER,
+                    {self.compile_params_col} TEXT,
+                    {self.fit_params_col} TEXT,
+                    {dist_key_col} INTEGER,
+                    {self.mst_key_col} INTEGER,
                     model_weights BYTEA,
                     {self.model_arch_col} JSON
                 )
@@ -523,6 +514,7 @@ class FitMultipleModel():
 
         plpy.execute(create_mst_weights_write_tbl_query)
 
+        # TODO: query gp_segment_configurations
         segment_hosts = ['localhost', 'localhost', 'localhost']
 
         create_mst_weights_tbl_query = """
@@ -548,9 +540,23 @@ class FitMultipleModel():
 
         plpy.execute(create_mst_weights_tbl_query.format(**locals()))
 
+    def run_training(self):
+        # NOTE: In the DL module, we want to avoid CREATING TEMP tables
+        # (creates a slice which stays until the session is disconnected)
+        # or minimize writing queries that generate plans with Motions (creating
+        # multiple slices on segments).
+        # This is mainly to avoid any GPU memory allocation failures. Since GPU
+        # memory allocation is tied to the process where it is initialized, failures
+        # may occur when a newly created slice(process) tries allocating GPU memory
+        # which is already allocated by a previously created slice(process).
+        # Therefore we want to have queries that do not add motions and all the
+        # sub-queries running Keras/tensorflow operations reuse the same slice(process)
+        # that was used for initializing GPU memory.
+
         insert_mst_weights_query = """
             INSERT INTO {self.mst_weights_tbl}_write
-                SELECT mst_tbl.gp_segment_id, mst_tbl.*, wgh_tbl.{self.model_weights_col},
+                SELECT mst_tbl.gp_segment_id, mst_tbl.*,
+                       wgh_tbl.{self.model_weights_col},
                        model_arch_tbl.{self.model_arch_col}
                 FROM
                     {self.mst_current_schedule_tbl} mst_tbl
@@ -563,21 +569,6 @@ class FitMultipleModel():
 
         plpy.execute(insert_mst_weights_query)
 
-        create_mst_weights_to_update_tbl_write_query = """
-            DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_write;
-                CREATE WRITABLE EXTERNAL WEB TABLE
-                    {self.weights_to_update_tbl}_write(
-                        seg_id INTEGER,
-                        model_weights BYTEA,
-                        mst_key TEXT,
-                        __dist_key__ INTEGER
-                    )
-                EXECUTE "/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'weights_output'"
-                    FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
-            """.format(**locals())
-
-        plpy.execute(create_mst_weights_to_update_tbl_write_query)
-
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
             INSERT INTO {self.weights_to_update_tbl}_write
@@ -586,9 +577,9 @@ class FitMultipleModel():
                     {mb_indep_var_col},
                     {self.dep_shape_col},
                     {self.ind_shape_col},
-                    {self.mst_weights_tbl}.{self.model_arch_col}::TEXT,
-                    {self.mst_weights_tbl}.{self.compile_params_col}::TEXT,
-                    {self.mst_weights_tbl}.{self.fit_params_col}::TEXT,
+                    {self.mst_weights_tbl}_read.{self.model_arch_col}::TEXT,
+                    {self.mst_weights_tbl}_read.{self.compile_params_col}::TEXT,
+                    {self.mst_weights_tbl}_read.{self.fit_params_col}::TEXT,
                     src.{dist_key_col},
                     ARRAY{self.dist_key_mapping},
                     src.{self.gp_segment_id_col},
