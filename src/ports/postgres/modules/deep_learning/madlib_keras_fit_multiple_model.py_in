@@ -162,9 +162,10 @@ class FitMultipleModel():
         random.shuffle(self.msts_for_schedule)
         self.grand_schedule = self.generate_schedule(self.msts_for_schedule)
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
-
-        self.create_model_output_table()
         self.weights_to_update_tbl = unique_string(desp='weights_to_update')
+        self.weights_to_update_tbl_write = self.weights_to_update_tbl+"write"
+        self.mst_weights_tbl_write = self.mst_weights_tbl+"write"
+        self.create_model_output_table()
         self.fit_multiple_model()
         reset_cuda_env(original_cuda_env)
 
@@ -245,12 +246,12 @@ class FitMultipleModel():
 
     def create_mst_schedule_table(self, mst_row):
         mst_temp_query = """
-                         CREATE TABLE {self.mst_current_schedule_tbl}
-                                 ({self.mst_key_col} INTEGER),
+                         CREATE TABLE {self.mst_current_schedule_tbl}(
+                                    {self.mst_key_col} INTEGER,
                                 {self.model_id_col} INTEGER,
                                  {self.compile_params_col} VARCHAR,
                                  {self.fit_params_col} VARCHAR,
-                                 {dist_key_col} INTEGER,
+                                 {dist_key_col} INTEGER)
                                  DISTRIBUTED BY ({dist_key_col})
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
@@ -267,11 +268,12 @@ class FitMultipleModel():
                 mst_key = "NULL"
             mst_insert_query = """
                                INSERT INTO {self.mst_current_schedule_tbl}
-                                   VALUES ({model_id},
+                                   VALUES ({mst_key},
+                                           {model_id},
                                            $madlib${compile_params}$madlib$,
                                            $madlib${fit_params}$madlib$,
-                                           {dist_key},
-                                           {mst_key})
+                                           {dist_key}
+                                           )
                                 """.format(**locals())
             plpy.execute(mst_insert_query)
 
@@ -319,14 +321,16 @@ class FitMultipleModel():
         plpy.execute(info_table_create_query)
 
         self.define_external_tables()
-
+        plpy.info(self.dist_keys)
+        plpy.info(len(self.msts))
+        seg_ids = [0, 1, 2]  # TODO remove this hardcoding
         for i, mst in enumerate(self.msts):
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
 
 
             # If warm start is enabled, weights from transfer learning cannot be
-            # used, even if a particular model doesn't have warm start weigths.
+            # used, even if a particular model doesn't have warm start weights.
             if self.warm_start:
                 model_weights = None
 
@@ -365,18 +369,23 @@ class FitMultipleModel():
             plpy.execute(info_table_insert_query)
 
             if not mst['mst_key'] in warm_start_msts:
-                seg_id = self.dist_key_mapping[i]
-                dist_key = self.dist_keys[i]
+                index = i
+                if i >= len(self.msts) - 1:
+                    index = i - (len(self.msts) - 1)
+                seg_id = seg_ids[index]
+                dist_key = self.dist_keys[index]
                 mst_key = mst[self.mst_key_col]
+                plpy.info('index: {index}  seg id: {seg_id} dist_key: {dist_key} mst_key: {mst_key}'.
+                          format(**locals()))
                 output_table_insert_query = """
-                                    INSERT INTO {self.weights_to_update_tbl}_write (
+                                    INSERT INTO {self.weights_to_update_tbl_write} (
                                         seg_id,
                                         {self.mst_key_col},
                                         {self.model_weights_col},
                                         {self.model_arch_col},
-                                        {self.dist_key_col}
+                                        __dist_key__
                                     )
-                                    VALUES ({seg_id}, $1, {mst_key}, $2, {dist_key})
+                                    VALUES ({seg_id}, {mst_key}, $1, $2, {dist_key})
                                        """.format(**locals())
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
@@ -487,39 +496,40 @@ class FitMultipleModel():
                 self.update_info_table(mst, False)
 
     def define_external_tables(self):
-        global dist_key_col
-
         # TODO: query gp_segment_configurations
-        segment_hosts = ['localhost', 'localhost', 'localhost']
+        hostname = ''
+        username = ''
+        segment_hosts = [hostname] * 3
 
         create_mst_weights_to_update_tbl_write_query = """
-            DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_write;
+            DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_write};
                 CREATE WRITABLE EXTERNAL WEB TABLE
-                    {self.weights_to_update_tbl}_write(
+                    {self.weights_to_update_tbl_write}(
                         seg_id INTEGER,
-                        {self.mst_key_col} TEXT,
+                        {self.mst_key_col} INTEGER,
                         {self.model_weights_col} BYTEA,
-                        {self.model_arch_col} JSON,
-                        {dist_key_col} INTEGER
+                        {self.model_arch_col} json,
+                        __dist_key__ INTEGER
                     )
-                EXECUTE "/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'model_output'"
+                EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/write_to_update_table.py_in model_output'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
+        plpy.execute(create_mst_weights_to_update_tbl_write_query)
 
         create_weights_to_update_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl}_read;
             CREATE READABLE EXTERNAL TABLE {self.weights_to_update_tbl}_read(
                 seg_id INTEGER,
-                {self.mst_key_col} TEXT,
+                {self.mst_key_col} INTEGER,
                 {self.model_weights_col} BYTEA,
-                {self.model_arch_col} JSON,
-                {dist_key_col} INTEGER
+                {self.model_arch_col} json,
+                __dist_key__ INTEGER
             )
             LOCATION ("""
 
         locations = []
         for seg_id, hostname in enumerate(segment_hosts):
-            locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
+            locations.append("'file://{0}/tmp/model_output{1}'".format(hostname, seg_id))
 
         create_weights_to_update_tbl_query += ','.join(locations)
         create_weights_to_update_tbl_query += ") FORMAT 'CSV'"
@@ -527,19 +537,19 @@ class FitMultipleModel():
         plpy.execute(create_weights_to_update_tbl_query.format(**locals()))
 
         create_mst_weights_write_tbl_query = """
-            DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl}_write; 
+            DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl_write};
             CREATE WRITABLE EXTERNAL WEB TABLE
-                {self.mst_weights_tbl}_write(
+                {self.mst_weights_tbl_write}(
                     seg_id INTEGER,
                     {self.mst_key_col} INTEGER,
                     model_id INTEGER,
                     {self.compile_params_col} TEXT,
                     {self.fit_params_col} TEXT,
-                    {dist_key_col} INTEGER,
-                    model_weights BYTEA,
-                    {self.model_arch_col} JSON
+                    __dist_key__ INTEGER,
+                    model_weights text,
+                    {self.model_arch_col} json
                 )
-                EXECUTE '/Users/dominovaldano/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py 'mst_weights_input'"
+                EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/insert_into_ext.py_in mst_weights_input'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
 
@@ -556,13 +566,13 @@ class FitMultipleModel():
                 fit_params TEXT,
                 __dist_key__ INTEGER,
                 model_weights BYTEA,
-                {self.model_arch_col} JSON
+                {self.model_arch_col} json
             )
             LOCATION ("""
 
         locations = []
         for seg_id, hostname in enumerate(segment_hosts):
-            locations.append("'file://{0}/tmp/model_output{1}'".format(hostname, seg_id))
+            locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
 
         update_mst_weights_tbl_query += ','.join(locations)
         update_mst_weights_tbl_query += ") FORMAT 'CSV'"
@@ -583,9 +593,13 @@ class FitMultipleModel():
         # that was used for initializing GPU memory.
 
         insert_mst_weights_query = """
-            INSERT INTO {self.mst_weights_tbl}_write
+            INSERT INTO {self.mst_weights_tbl_write}
                 SELECT mst_tbl.gp_segment_id, 
-                       mst_tbl.*,
+                       mst_tbl.{self.mst_key_col},
+                       mst_tbl.{self.model_id_col},
+                       mst_tbl.{compile_params_col}, --TODO might need $$
+                       mst_tbl.{self.fit_params_col}, --TODO might need $$
+                       mst_tbl.__dist_key__,
                        wgh_tbl.{self.model_weights_col},
                        model_arch_tbl.{self.model_arch_col}
                 FROM
@@ -594,23 +608,23 @@ class FitMultipleModel():
                     ON mst_tbl.{self.mst_key_col} = wgh_tbl.{self.mst_key_col}
                         LEFT JOIN {self.model_arch_table} model_arch_tbl
                         ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
-        """.format(dist_key_col=dist_key_col,
-                   **locals())
+        """.format(**locals())
 
         plpy.execute(insert_mst_weights_query)
 
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
-            INSERT INTO {self.weights_to_update_tbl}_write
+            INSERT INTO {self.weights_to_update_tbl_write}
                 SELECT src.gp_segment_id,
-                    {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
+                    {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col},
+                    $${self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                     {mb_indep_var_col},
                     {self.dep_shape_col},
                     {self.ind_shape_col},
                     {self.mst_weights_tbl}_read.{self.model_arch_col}::TEXT,
                     {self.mst_weights_tbl}_read.{self.compile_params_col}::TEXT,
                     {self.mst_weights_tbl}_read.{self.fit_params_col}::TEXT,
-                    src.{dist_key_col},
+                    src.__dist_key__,
                     ARRAY{self.dist_key_mapping},
                     src.{self.gp_segment_id_col},
                     {self.segments_per_host},
@@ -619,17 +633,16 @@ class FitMultipleModel():
                     ARRAY{self.accessible_gpus_for_seg},
                     {self.mst_weights_tbl}.{self.model_weights_col}::BYTEA,
                     {is_final_iteration}::BOOLEAN
-                    )::BYTEA AS {self.model_weights_col},
-                    {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
-                    ,src.{dist_key_col} AS {dist_key_col}
-                FROM {self.source_table} src JOIN {self.mst_weights_tbl}_read
-                    USING ({dist_key_col})
+                    )$$::BYTEA AS {self.model_weights_col},
+                    r.{self.model_arch_col},
+                    src.__dist_key__ AS __dist_key__
+                FROM {self.source_table} src JOIN {self.mst_weights_tbl}_read r
+                    USING (__dist_key__)
                 WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
-                GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}_read.{self.mst_key_col}
+                GROUP BY src.__dist_key__, {self.mst_weights_tbl}_read.{self.mst_key_col}
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
-                       dist_key_col=dist_key_col,
                        use_gpus=use_gpus,
                        self=self
                        )

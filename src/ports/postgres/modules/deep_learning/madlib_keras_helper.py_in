@@ -128,9 +128,15 @@ def get_image_count_per_seg_for_minibatched_data_from_db(table_name):
     that it would have been distributed by __dist_key__.
     :param table_name:
     :return: Returns two arrays
+
+    TODO we don't return segids anymore. Instead we return the dist keys.
+    Make sure all the places calling this function are using it as intended
+
     1. An array containing all the segment numbers in ascending order
     1. An array containing the total images on each of the segments in the
     segment array.
+
+    #
     """
 
     mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
