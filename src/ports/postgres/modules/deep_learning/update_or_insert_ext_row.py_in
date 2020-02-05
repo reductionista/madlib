@@ -3,10 +3,16 @@ from os import path
 import os
 
 new_row = sys.stdin.readlines()[0]
-seg_id, new_mst_key, _ = new_row.split(',', 2)
-fname_in = "/tmp/" + sys.argv[1] + seg_id
-fname_out = fname_in + '.tmp'
+length = len(new_row)
+#seg_id, new_mst_key, _ = new_row.split(',', 2)
+#fname_in = "/tmp/" + sys.argv[1] + seg_id
+#fname_out = fname_in + '.tmp'
+fname_out = '/tmp/newfile.csv'
 fd_out = open(fname_out, 'w')
+#fd_out.write(new_row)
+#print(new_row, file=fd_out)
+fd_out.close()
+sys.exit(0)
 if path.exists(fname_in):
     fd_in = open(fname_in, 'r')
     for row in fd_in:
