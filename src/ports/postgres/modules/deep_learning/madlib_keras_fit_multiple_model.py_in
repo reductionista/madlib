@@ -502,8 +502,12 @@ class FitMultipleModel():
                 self.update_info_table(mst, False)
 
     def define_external_tables(self):
-        # TODO: 1 query gp_segment_configurations
-        #       2 cleanup external tables
+        """ TODO:
+        1. query gp_segment_configurations
+        2. cleanup external tables
+        3. can't use the same script     for initializing the weights and updating
+            the weights
+        """
         hostname = ''
         username = ''
         segment_hosts = [hostname] * 3
@@ -520,6 +524,7 @@ class FitMultipleModel():
                     )
                 EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/write_to_update_table.py_in model_output'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
+----FORMAT 'CUSTOM' (formatter=fixedwidth_out, seg_id=4, {self.mst_key_col}=4, {self.model_weights_col} = 622179880 , {self.model_arch_col} = 1, __dist_key__ = 4) DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
         plpy.execute(create_mst_weights_to_update_tbl_write_query)
 
