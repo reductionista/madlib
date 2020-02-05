@@ -5,7 +5,7 @@ import os
 row = sys.stdin.readlines()[0]
 seg_id, _ = row.split(',', 1)
 fname = "/tmp/" + sys.argv[1] + seg_id
-fd = open(fname, 'a')
+fd = open(fname, 'w')
 fd.write(row)
 fd.close()
 

@@ -13,8 +13,12 @@ if path.exists(fname_in):
         mst_key = row.split(',', 3)[1]
         if mst_key == new_mst_key:
             fd_out.write(new_row)
+            new_row = None
+            break
         else:
             fd_out.write(row)
+    if new_row:
+        fd_out.write(new_row)
     fd_in.close()
     os.remove(fname_in)
 else:
