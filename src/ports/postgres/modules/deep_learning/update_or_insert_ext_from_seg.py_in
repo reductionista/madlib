@@ -2,16 +2,11 @@ import sys
 from os import path
 import os
 
-new_rows = sys.stdin.readlines()
-last_row = new_rows.pop()
-new_rows = [ new_row.strip() for new_row in new_rows ]
-new_rows.append(last_row)
-new_row = ''.join(new_rows) + '\n'
+new_row = sys.stdin.readlines()[0]
 seg_id, new_mst_key, _ = new_row.split(',', 2)
 fname_in = "/tmp/" + sys.argv[1] + seg_id
 fname_out = fname_in + '.tmp'
 fd_out = open(fname_out, 'w')
-
 if path.exists(fname_in):
     fd_in = open(fname_in, 'r')
     for row in fd_in:

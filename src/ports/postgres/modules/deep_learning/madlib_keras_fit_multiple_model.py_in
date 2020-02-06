@@ -393,12 +393,12 @@ class FitMultipleModel():
                                         {self.model_arch_col},
                                         __dist_key__
                                     )
-                                    VALUES ({seg_id}, {mst_key}, $1, decode($2::text, 'escape'), {dist_key})
+                                    VALUES ({seg_id}, {mst_key}, encode($1, 'base64'), decode($2::text, 'escape'), {dist_key})
                                        """.format(**locals())
                 output_table_insert_query_prepared = plpy.prepare(
-                    output_table_insert_query, ["text", "json"])
+                    output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
-                             b64encode(serialized_weights), model_arch])
+                             serialized_weights, model_arch])
 
     def create_model_summary_table(self):
         if self.warm_start:
