@@ -387,13 +387,11 @@ class FitMultipleModel():
                           format(**locals()))
                 output_table_insert_query = """
                                     INSERT INTO {self.weights_to_update_tbl_write} (
-                                        seg_id,
                                         {self.mst_key_col},
                                         {self.model_weights_col},
-                                        {self.model_arch_col},
-                                        __dist_key__
+                                        {self.model_arch_col}
                                     )
-                                    VALUES ({seg_id}, {mst_key}, encode($1, 'base64'), decode($2::text, 'escape'), {dist_key})
+                                    VALUES ({mst_key}, encode($1, 'base64'), decode($2::text, 'escape'))
                                        """.format(**locals())
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
@@ -510,40 +508,34 @@ class FitMultipleModel():
         3. can't use the same script     for initializing the weights and updating
             the weights
         """
-        hostname = 'localhost'
+        hostnames = ['localhost']
         username = 'dominovaldano'
-        segment_hosts = [hostname] * 3
 
         create_mst_weights_to_update_tbl_write_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_write};
                 CREATE WRITABLE EXTERNAL WEB TABLE
                     {self.weights_to_update_tbl_write}(
-                        seg_id INTEGER,
                         {self.mst_key_col} INTEGER,
                         {self.model_weights_col} TEXT,
-                        {self.model_arch_col} BYTEA,
-                        __dist_key__ INTEGER
+                        {self.model_arch_col} BYTEA
                     )
                 EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/update_or_insert_ext_row.py_in model_output'
-                    FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
-----FORMAT 'CUSTOM' (formatter=fixedwidth_out, seg_id=4, {self.mst_key_col}=4, {self.model_weights_col} = 622179880 , {self.model_arch_col} = 1, __dist_key__ = 4) DISTRIBUTED BY (__dist_key__);
+                    FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_mst_weights_to_update_tbl_write_query)
 
         create_weights_to_update_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_read};
             CREATE READABLE EXTERNAL TABLE {self.weights_to_update_tbl_read}(
-                seg_id INTEGER,
                 {self.mst_key_col} INTEGER,
                 {self.model_weights_col} TEXT,
-                {self.model_arch_col} bytea,
-                __dist_key__ INTEGER
+                {self.model_arch_col} bytea
             )
             LOCATION ("""
 
         locations = []
-        for seg_id, hostname in enumerate(segment_hosts):
-            locations.append("'file://{0}/tmp/model_output{1}'".format(hostname, seg_id))
+        for hostname in segment_hosts:
+            locations.append("'file://{0}/tmp/model_output'".format(hostname))
 
         create_weights_to_update_tbl_query += ','.join(locations)
         create_weights_to_update_tbl_query += ") FORMAT 'CSV'"
@@ -627,8 +619,7 @@ class FitMultipleModel():
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
             INSERT INTO {self.weights_to_update_tbl_write}
-                SELECT src.gp_segment_id,
-                    mst_wghts.{self.mst_key_col} AS {self.mst_key_col},
+                SELECT mst_wghts.{self.mst_key_col} AS {self.mst_key_col},
                     encode({self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
                     {mb_indep_var_col},
                     {self.dep_shape_col},
@@ -647,7 +638,6 @@ class FitMultipleModel():
                     {is_final_iteration}::BOOLEAN
                     ), 'base64') AS {self.model_weights_col},
                     mst_wghts.{self.model_arch_col},
-                    src.__dist_key__ AS __dist_key__
                 FROM {self.source_table} src JOIN {self.mst_weights_tbl_read} mst_wghts
                     USING (__dist_key__)
                 WHERE mst_wghts.{self.mst_key_col} IS NOT NULL

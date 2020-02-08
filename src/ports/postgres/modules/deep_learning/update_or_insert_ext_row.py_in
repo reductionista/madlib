@@ -5,8 +5,8 @@ import os
 lines = sys.stdin.readlines()
 lines = [ line.rstrip() for line in lines ]
 new_row = ''.join(lines)
-seg_id, new_mst_key, _ = new_row.split(',', 2)
-fname_in = "/tmp/" + sys.argv[1] + seg_id
+new_mst_key, _ = new_row.split(',', 1)
+fname_in = "/tmp/" + sys.argv[1]
 fname_out = fname_in + '.tmp'
 fd_out = open(fname_out, 'w')
 
