@@ -534,7 +534,7 @@ class FitMultipleModel():
             LOCATION ("""
 
         locations = []
-        for hostname in segment_hosts:
+        for hostname in hostnames:
             locations.append("'file://{0}/tmp/model_output'".format(hostname))
 
         create_weights_to_update_tbl_query += ','.join(locations)
@@ -576,7 +576,7 @@ class FitMultipleModel():
             LOCATION ("""
 
         locations = []
-        for seg_id, hostname in enumerate(segment_hosts):
+        for seg_id, hostname in enumerate(hostnames):
             locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
 
         create_mst_weights_read_tbl_query += ','.join(locations)
@@ -637,7 +637,7 @@ class FitMultipleModel():
                     decode(mst_wghts.{self.model_weights_col}, 'base64'),
                     {is_final_iteration}::BOOLEAN
                     ), 'base64') AS {self.model_weights_col},
-                    mst_wghts.{self.model_arch_col},
+                    mst_wghts.{self.model_arch_col}
                 FROM {self.source_table} src JOIN {self.mst_weights_tbl_read} mst_wghts
                     USING (__dist_key__)
                 WHERE mst_wghts.{self.mst_key_col} IS NOT NULL

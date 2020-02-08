@@ -26,7 +26,7 @@ if path.exists(fname_in):
     fd_in = open(fname_in, 'r')
 
     for row in fd_in:
-        mst_key = row.split(',', 3)[1]
+        mst_key, _ = row.split(',', 1)
         if mst_key == new_mst_key:
             write_row(new_row) # update row
             new_row = None
