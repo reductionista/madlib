@@ -2,10 +2,11 @@ import sys
 from os import path
 import os
 
-row = sys.stdin.readlines()
+lines = sys.stdin.readlines()
+lines = [ line.strip() for line in lines ]
+row = ''.join(lines)
 seg_id, _ = row.split(',', 1)
 fname = "/tmp/" + sys.argv[1] + seg_id
 fd = open(fname, 'w')
 fd.write(row)
 fd.close()
-

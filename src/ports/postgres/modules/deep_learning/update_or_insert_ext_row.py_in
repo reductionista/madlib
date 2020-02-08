@@ -2,33 +2,45 @@ import sys
 from os import path
 import os
 
-new_rows = sys.stdin.readlines()
-last_row = new_rows.pop()
-new_rows = [ new_row.strip() for new_row in new_rows ]
-new_rows.append(last_row)
-new_row = ''.join(new_rows) + '\n'
+lines = sys.stdin.readlines()
+lines = [ line.rstrip() for line in lines ]
+new_row = ''.join(lines)
 seg_id, new_mst_key, _ = new_row.split(',', 2)
 fname_in = "/tmp/" + sys.argv[1] + seg_id
 fname_out = fname_in + '.tmp'
 fd_out = open(fname_out, 'w')
 
+def write_row(row):
+    global first_row
+    global fd_out
+
+    if first_row:
+        first_row=False
+    else:
+        fd_out.write('\n')
+
+    fd_out.write(row)
+
+first_row = True
 if path.exists(fname_in):
     fd_in = open(fname_in, 'r')
+
     for row in fd_in:
         mst_key = row.split(',', 3)[1]
         if mst_key == new_mst_key:
-            fd_out.write(new_row)
+            write_row(new_row) # update row
             new_row = None
             break
         else:
-            fd_out.write(row)
-    if new_row:
-        fd_out.write(new_row)
+            write_row(row.rstrip())
+
+    if new_row: # append after existing rows
+        write_row(new_row)
+
     fd_in.close()
     os.remove(fname_in)
 else:
-    fd_out.write(new_row)
+    write_row(new_row)
 
 fd_out.close()
 os.rename(fname_out, fname_in)
-

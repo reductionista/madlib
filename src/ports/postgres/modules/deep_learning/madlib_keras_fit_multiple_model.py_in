@@ -569,8 +569,7 @@ class FitMultipleModel():
 
         plpy.execute(create_mst_weights_write_tbl_query)
 
-
-        update_mst_weights_tbl_query = """
+        create_mst_weights_read_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl_read};
             CREATE READABLE EXTERNAL TABLE {self.mst_weights_tbl_read}(
                 seg_id INTEGER,
@@ -588,10 +587,10 @@ class FitMultipleModel():
         for seg_id, hostname in enumerate(segment_hosts):
             locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
 
-        update_mst_weights_tbl_query += ','.join(locations)
-        update_mst_weights_tbl_query += ") FORMAT 'CSV'"
+        create_mst_weights_read_tbl_query += ','.join(locations)
+        create_mst_weights_read_tbl_query += ") FORMAT 'CSV'"
 
-        plpy.execute(update_mst_weights_tbl_query.format(**locals()))
+        plpy.execute(create_mst_weights_read_tbl_query.format(**locals()))
 
     def run_training(self):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
