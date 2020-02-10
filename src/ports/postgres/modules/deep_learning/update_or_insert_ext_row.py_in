@@ -10,6 +10,11 @@ fname_in = "/tmp/" + sys.argv[1]
 fname_out = fname_in + '.tmp'
 fd_out = open(fname_out, 'w')
 
+log_out = open('/tmp/update_or_replace.log', 'a')
+log_out.write("This file is being written to...\n")
+log_out.write(new_row + '\n')
+log_out.write('new_mst_key = ' + new_mst_key + '\n')
+
 def write_row(row):
     global first_row
     global fd_out
@@ -27,10 +32,10 @@ if path.exists(fname_in):
 
     for row in fd_in:
         mst_key, _ = row.split(',', 1)
+        log_out.write('checking mst key "{}" = "{}"'.format(new_mst_key, mst_key))
         if mst_key == new_mst_key:
             write_row(new_row) # update row
             new_row = None
-            break
         else:
             write_row(row.rstrip())
 
@@ -42,5 +47,6 @@ if path.exists(fname_in):
 else:
     write_row(new_row)
 
+log_out.close()
 fd_out.close()
 os.rename(fname_out, fname_in)

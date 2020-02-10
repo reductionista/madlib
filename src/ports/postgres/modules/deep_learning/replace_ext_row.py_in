@@ -5,8 +5,13 @@ import os
 lines = sys.stdin.readlines()
 lines = [ line.strip() for line in lines ]
 row = ''.join(lines)
+
+log_fd = open('/tmp/replace.log', 'a')
+log_fd.write(row)
+
 seg_id, _ = row.split(',', 1)
 fname = "/tmp/" + sys.argv[1] + seg_id
 fd = open(fname, 'w')
 fd.write(row)
 fd.close()
+log_fd.close()

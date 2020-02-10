@@ -511,7 +511,7 @@ class FitMultipleModel():
         hostnames = ['localhost']
         username = 'dominovaldano'
 
-        create_mst_weights_to_update_tbl_write_query = """
+        create_weights_to_update_tbl_write_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_write};
                 CREATE WRITABLE EXTERNAL WEB TABLE
                     {self.weights_to_update_tbl_write}(
@@ -522,14 +522,14 @@ class FitMultipleModel():
                 EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/update_or_insert_ext_row.py_in model_output'
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
-        plpy.execute(create_mst_weights_to_update_tbl_write_query)
+        plpy.execute(create_weights_to_update_tbl_write_query)
 
-        create_weights_to_update_tbl_query = """
+        create_weights_to_update_tbl_read_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_read};
             CREATE READABLE EXTERNAL TABLE {self.weights_to_update_tbl_read}(
                 {self.mst_key_col} INTEGER,
                 {self.model_weights_col} TEXT,
-                {self.model_arch_col} bytea
+                {self.model_arch_col} BYTEA
             )
             LOCATION ("""
 
@@ -537,10 +537,10 @@ class FitMultipleModel():
         for hostname in hostnames:
             locations.append("'file://{0}/tmp/model_output'".format(hostname))
 
-        create_weights_to_update_tbl_query += ','.join(locations)
-        create_weights_to_update_tbl_query += ") FORMAT 'CSV'"
+        create_weights_to_update_tbl_read_query += ','.join(locations)
+        create_weights_to_update_tbl_read_query += ") FORMAT 'CSV'"
 
-        plpy.execute(create_weights_to_update_tbl_query.format(**locals()))
+        plpy.execute(create_weights_to_update_tbl_read_query.format(**locals()))
 
         create_mst_weights_write_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl_write};
