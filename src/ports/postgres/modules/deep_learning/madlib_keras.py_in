@@ -485,6 +485,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                                                   segments_per_host,
                                                   model_architecture, compile_params)
     agg_image_count = madlib_keras_serializer.get_image_count_from_state(state)
+
     if not state:
         set_model_weights(segment_model, prev_serialized_weights)
 
