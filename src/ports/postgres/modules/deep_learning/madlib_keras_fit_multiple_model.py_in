@@ -329,9 +329,9 @@ class FitMultipleModel():
         plpy.execute(info_table_create_query)
 
         self.define_external_tables()
-        plpy.info(self.dist_keys)
-        plpy.info(len(self.msts))
-        seg_ids = [0, 1, 2]  # TODO remove this hardcoding
+        plpy.info("Dist keys: " + self.dist_keys)
+        plpy.info("Num mst's: " + str(len(self.msts)))
+        seg_ids = range(20)  # TODO remove this hardcoding
         for i, mst in enumerate(self.msts):
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
@@ -508,8 +508,13 @@ class FitMultipleModel():
         3. can't use the same script     for initializing the weights and updating
             the weights
         """
-        hostnames = ['localhost']
-        username = 'dominovaldano'
+        hostnames = [ 'gpsix0',
+                      'gpsix1',
+                      'gpsix2',
+                      'gpsix3',
+                      'gpsix4' ]
+
+        segments_per_host = 4
 
         create_weights_to_update_tbl_write_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_write};
@@ -519,7 +524,7 @@ class FitMultipleModel():
                         {self.model_weights_col} TEXT,
                         {self.model_arch_col} BYTEA
                     )
-                EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/update_or_insert_ext_row.py_in model_output'
+                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/update_or_insert_ext_row.py model_output'
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_weights_to_update_tbl_write_query)
@@ -555,7 +560,7 @@ class FitMultipleModel():
                     model_weights text,
                     {self.model_arch_col} bytea
                 )
-                EXECUTE 'python /Users/{username}/workspace/madlib/src/ports/postgres/modules/deep_learning/replace_ext_row.py_in mst_weights_input'
+                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/replace_ext_row.py mst_weights_input'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
 
@@ -576,8 +581,11 @@ class FitMultipleModel():
             LOCATION ("""
 
         locations = []
-        for seg_id, hostname in enumerate(hostnames):
-            locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
+        seg_id = 0
+        for hostname in hostnames:
+            for i in range(segments_per_host):
+                locations.append("'file://{0}/tmp/mst_weights_input{1}'".format(hostname, seg_id))
+                seg_id += 1
 
         create_mst_weights_read_tbl_query += ','.join(locations)
         create_mst_weights_read_tbl_query += ") FORMAT 'CSV'"
