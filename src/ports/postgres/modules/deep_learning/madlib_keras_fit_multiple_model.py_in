@@ -329,7 +329,7 @@ class FitMultipleModel():
         plpy.execute(info_table_create_query)
 
         self.define_external_tables()
-        plpy.info("Dist keys: " + self.dist_keys)
+        plpy.info("Dist keys: " + ' '.join(map(str,self.dist_keys)))
         plpy.info("Num mst's: " + str(len(self.msts)))
         seg_ids = range(20)  # TODO remove this hardcoding
         for i, mst in enumerate(self.msts):
@@ -528,24 +528,22 @@ class FitMultipleModel():
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_weights_to_update_tbl_write_query)
+        plpy.info(create_weights_to_update_tbl_write_query)
 
         create_weights_to_update_tbl_read_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.weights_to_update_tbl_read};
-            CREATE READABLE EXTERNAL TABLE {self.weights_to_update_tbl_read}(
+            CREATE READABLE EXTERNAL WEB TABLE {self.weights_to_update_tbl_read} (
                 {self.mst_key_col} INTEGER,
                 {self.model_weights_col} TEXT,
                 {self.model_arch_col} BYTEA
             )
-            LOCATION ("""
-
-        locations = []
-        for hostname in hostnames:
-            locations.append("'file://{0}/tmp/model_output'".format(hostname))
-
-        create_weights_to_update_tbl_read_query += ','.join(locations)
-        create_weights_to_update_tbl_read_query += ") FORMAT 'CSV'"
+            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/read_model_output_ext.py'
+            ON HOST
+            FORMAT 'CSV'
+        """
 
         plpy.execute(create_weights_to_update_tbl_read_query.format(**locals()))
+        plpy.info(create_weights_to_update_tbl_read_query.format(**locals()))
 
         create_mst_weights_write_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl_write};
@@ -565,6 +563,7 @@ class FitMultipleModel():
             """.format(**locals())
 
         plpy.execute(create_mst_weights_write_tbl_query)
+        plpy.info(create_mst_weights_write_tbl_query)
 
         create_mst_weights_read_tbl_query = """
             DROP EXTERNAL TABLE IF EXISTS {self.mst_weights_tbl_read};
@@ -591,6 +590,7 @@ class FitMultipleModel():
         create_mst_weights_read_tbl_query += ") FORMAT 'CSV'"
 
         plpy.execute(create_mst_weights_read_tbl_query.format(**locals()))
+        plpy.info(create_mst_weights_read_tbl_query.format(**locals()))
 
     def run_training(self):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
@@ -614,7 +614,7 @@ class FitMultipleModel():
                        mst_tbl.{self.fit_params_col}, --TODO might need $$
                        mst_tbl.__dist_key__,
                        wgh_tbl.{self.model_weights_col},
-                       decode(model_arch_tbl.{self.model_arch_col}::text,'escape')
+                       decode(model_arch_tbl.{self.model_arch_col}::text, 'escape')
                 FROM
                     {self.mst_current_schedule_tbl} mst_tbl
                     LEFT JOIN {self.weights_to_update_tbl_read} wgh_tbl
@@ -623,6 +623,7 @@ class FitMultipleModel():
                         ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
         """.format(**locals())
         plpy.execute(insert_mst_weights_query)
+        plpy.info(insert_mst_weights_query)
 
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """

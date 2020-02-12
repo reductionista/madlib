@@ -1,17 +1,20 @@
 import sys
 from os import path
 import os
+import time
 
 lines = sys.stdin.readlines()
 lines = [ line.rstrip() for line in lines ]
 new_row = ''.join(lines)
 new_mst_key, _ = new_row.split(',', 1)
-fname_in = "/tmp/" + sys.argv[1]
+fname_in = "/tmp/{0}{1}".format(sys.argv[1], new_mst_key)
 fname_out = fname_in + '.tmp'
 fd_out = open(fname_out, 'w')
 
+start = time.time()
+
 log_out = open('/tmp/update_or_replace.log', 'a')
-log_out.write("This file is being written to...\n")
+log_out.write("INSERT called at {}\n".format(start))
 log_out.write(new_row + '\n')
 log_out.write('new_mst_key = ' + new_mst_key + '\n')
 
@@ -47,6 +50,8 @@ if path.exists(fname_in):
 else:
     write_row(new_row)
 
-log_out.close()
 fd_out.close()
 os.rename(fname_out, fname_in)
+finish = time.time()
+log_out.write("END INSERT at {}, took {}s\n".format(finish, finish-start))
+log_out.close()

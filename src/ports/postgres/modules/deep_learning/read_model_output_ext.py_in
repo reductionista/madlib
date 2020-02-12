@@ -1,0 +1,14 @@
+import glob
+
+fnames = glob.glob("/tmp/model_output*")
+
+first_file=True
+
+for fname in fnames:
+    if first_file:
+        first_file=False
+    else:
+        print
+    fd_in = open(fname, 'r')
+    for row in fd_in:
+        print row,
