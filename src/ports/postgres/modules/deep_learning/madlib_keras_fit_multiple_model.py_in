@@ -384,15 +384,22 @@ class FitMultipleModel():
                 dist_key = self.dist_keys[index]
                 mst_key = mst[self.mst_key_col]
                 plpy.info('index: {index}  seg id: {seg_id} dist_key: {dist_key} mst_key: {mst_key}'.
-                          format(**locals()))
+                    format(**locals()))
                 output_table_insert_query = """
-                                    INSERT INTO {self.weights_to_update_tbl_write} (
-                                        {self.mst_key_col},
-                                        {self.model_weights_col},
-                                        {self.model_arch_col}
-                                    )
-                                    VALUES ({mst_key}, encode($1, 'base64'), decode($2::text, 'escape'))
-                                       """.format(**locals())
+                    INSERT INTO {self.weights_to_update_tbl_write} (
+                        {self.mst_key_col},
+                        {self.model_weights_col},
+                        {self.model_arch_col}
+                    )
+                    VALUES (
+                        {mst_key},
+                        regexp_replace(
+                            encode($1, 'base64'),
+                            E'\\n+', '', 'g'
+                        ),
+                        decode($2::text, 'escape')
+                    )
+                """.format(**locals())
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
@@ -524,7 +531,7 @@ class FitMultipleModel():
                         {self.model_weights_col} TEXT,
                         {self.model_arch_col} BYTEA
                     )
-                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/update_or_insert_ext_row.py model_output'
+                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/replace_ext_row.py model_output'
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_weights_to_update_tbl_write_query)
@@ -629,24 +636,27 @@ class FitMultipleModel():
         uda_query = """
             INSERT INTO {self.weights_to_update_tbl_write}
                 SELECT mst_wghts.{self.mst_key_col} AS {self.mst_key_col},
-                    encode({self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
-                    {mb_indep_var_col},
-                    {self.dep_shape_col},
-                    {self.ind_shape_col},
-                    encode(mst_wghts.{self.model_arch_col},'escape'),
-                    mst_wghts.{self.compile_params_col}::TEXT,
-                    mst_wghts.{self.fit_params_col}::TEXT,
-                    src.__dist_key__,
-                    ARRAY{self.dist_key_mapping},
-                    src.{self.gp_segment_id_col},
-                    {self.segments_per_host},
-                    ARRAY{self.images_per_seg_train},
-                    {use_gpus}::BOOLEAN,
-                    ARRAY{self.accessible_gpus_for_seg},
-                    decode(mst_wghts.{self.model_weights_col}, 'base64'),
-                    {is_final_iteration}::BOOLEAN
-                    ), 'base64') AS {self.model_weights_col},
-                    mst_wghts.{self.model_arch_col}
+                    regexp_replace(encode(
+                        {self.schema_madlib}.fit_step_multiple_model(
+                            {mb_dep_var_col},
+                            {mb_indep_var_col},
+                            {self.dep_shape_col},
+                            {self.ind_shape_col},
+                            encode(mst_wghts.{self.model_arch_col},'escape'),
+                            mst_wghts.{self.compile_params_col}::TEXT,
+                            mst_wghts.{self.fit_params_col}::TEXT,
+                            src.__dist_key__,
+                            ARRAY{self.dist_key_mapping},
+                            src.{self.gp_segment_id_col},
+                            {self.segments_per_host},
+                            ARRAY{self.images_per_seg_train},
+                            {use_gpus}::BOOLEAN,
+                            ARRAY{self.accessible_gpus_for_seg},
+                            decode(mst_wghts.{self.model_weights_col}, 'base64'),
+                            {is_final_iteration}::BOOLEAN
+                        ), 'base64'
+                    ), E'\\n+', '', 'g')
+                    AS {self.model_weights_col}, mst_wghts.{self.model_arch_col}
                 FROM {self.source_table} src JOIN {self.mst_weights_tbl_read} mst_wghts
                     USING (__dist_key__)
                 WHERE mst_wghts.{self.mst_key_col} IS NOT NULL

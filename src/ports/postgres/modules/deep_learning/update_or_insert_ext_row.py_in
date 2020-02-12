@@ -43,7 +43,8 @@ if path.exists(fname_in):
             write_row(row.rstrip())
 
     if new_row: # append after existing rows
-        write_row(new_row)
+        #write_row(new_row)
+        raise Exception  # append not supported, shouldn't get here
 
     fd_in.close()
     os.remove(fname_in)
