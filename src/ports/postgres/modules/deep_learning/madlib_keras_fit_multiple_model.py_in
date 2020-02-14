@@ -160,6 +160,8 @@ class FitMultipleModel():
         self.weights_to_update_tbl_read = self.weights_to_update_tbl + "read"
         self.weights_to_update_tbl_write = self.weights_to_update_tbl + "write"
 
+        self.drop_external_tables = unique_string(desp='drop_ext_tables')
+
         self.mst_current_schedule_tbl = unique_string(desp='mst_current_schedule')
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
         if len(self.msts) < len(self.dist_keys):
@@ -210,6 +212,27 @@ class FitMultipleModel():
                 if self.validation_table:
                     self.evaluate_model(iter, self.validation_table, False)
             plpy.info("\n"+self.info_str)
+
+        write_model_output_q = """
+            INSERT INTO {self.model_output_table} AS
+                SELECT
+                    mst_key,
+                    decode(model_weights, 'base64',
+                    encode(model_arch, 'escape')::JSON
+                FROM {self.weights_to_update}
+        """.format(**locals())
+
+        plpy.execute(write_model_output_q)
+        self.drop_ext_tables()
+
+    def drop_ext_tables(self):
+        plpy.execute('SELECT * FROM {self.drop_external_tables}');
+#        plpy.execute('DROP EXTERNAL TABLE {self.weights_to_update_tbl_write}');
+#        plpy.execute('DROP EXTERNAL TABLE {self.weights_to_update_tbl_read}');
+#        plpy.execute('DROP EXTERNAL TABLE {self.mst_weights_tbl_write}');
+#        plpy.execute('DROP EXTERNAL TABLE {self.mst_weights_tbl_read}');
+#        plpy.execute('DROP EXTERNAL TABLE {self.drop_external_tables}');
+
 
     def evaluate_model(self, epoch, table, is_train):
         if is_train:
@@ -399,7 +422,17 @@ class FitMultipleModel():
                         ),
                         decode($2::text, 'escape')
                     )
-                """.format(**locals())
+                """.format(**locals())  # TODO: I think this method of
+                                        # converting JSON -> TEXT -> BYTEA
+                                        # will probably fail if there is a \
+                                        # in the JSON somewhere.  For example,
+                                        # if we have $$compile_params = "foo=\"bar\""$$
+                                        # I think decoding and then encoding again
+                                        # might change it to $$compile_params = "foo="bar""$$
+                                        # We should test this, but I think we'll need to
+                                        # replace \ with \\ everywhere in the TEXT
+                                        # before decoding to BYTEA, and undo it while
+                                        # encoding back to an escaped TEXT string
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
@@ -531,7 +564,7 @@ class FitMultipleModel():
                         {self.model_weights_col} TEXT,
                         {self.model_arch_col} BYTEA
                     )
-                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/replace_ext_row.py model_output'
+                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/replace_ext_row.py model_output'
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_weights_to_update_tbl_write_query)
@@ -544,7 +577,7 @@ class FitMultipleModel():
                 {self.model_weights_col} TEXT,
                 {self.model_arch_col} BYTEA
             )
-            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/read_model_output_ext.py'
+            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/read_model_output_ext.py'
             ON HOST
             FORMAT 'CSV'
         """
@@ -565,7 +598,7 @@ class FitMultipleModel():
                     model_weights text,
                     {self.model_arch_col} bytea
                 )
-                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/6/modules/deep_learning/replace_ext_row.py mst_weights_input'
+                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/replace_ext_row.py mst_weights_input'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
 
@@ -598,6 +631,18 @@ class FitMultipleModel():
 
         plpy.execute(create_mst_weights_read_tbl_query.format(**locals()))
         plpy.info(create_mst_weights_read_tbl_query.format(**locals()))
+
+        create_drop_ext_tables_q = """
+            DROP EXTERNAL TABLE IF EXISTS {self.drop_external_tables};
+            CREATE READABLE EXTERNAL WEB TABLE {self.drop_external_tables}
+                (dummy INT)
+            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/drop_external_tables.py'
+            ON HOST
+            FORMAT 'TEXT'
+        """
+
+        plpy.execute(create_drop_ext_tables_q.format(**locals()))
+        plpy.info(create_drop_ext_tables_q.format(**locals()))
 
     def run_training(self):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
