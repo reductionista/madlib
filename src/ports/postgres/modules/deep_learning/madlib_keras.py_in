@@ -525,11 +525,17 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
             del segment_model
             del sess
 
-    new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-        agg_image_count, updated_weights)
+    if is_multiple_model:
+            new_state = madlib_keras_serializer.serialize_nd_weights(updated_weights)
+    else:
+        new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+            agg_image_count, updated_weights)
 
     del x_train
     del y_train
+
+    # new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+    #     agg_image_count, updated_weights)
 
     return new_state
 

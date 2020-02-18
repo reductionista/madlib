@@ -1537,6 +1537,6 @@ CREATE AGGREGATE MADLIB_SCHEMA.fit_step_multiple_model(
     /* is_final_iteration */         BOOLEAN
 )(
     STYPE=BYTEA,
-    SFUNC=MADLIB_SCHEMA.fit_transition_multiple_model,
-    FINALFUNC=MADLIB_SCHEMA.fit_final_multiple_model
+    SFUNC=MADLIB_SCHEMA.fit_transition_multiple_model
+--     FINALFUNC=MADLIB_SCHEMA.fit_final_multiple_model
 );
