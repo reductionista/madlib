@@ -81,6 +81,8 @@ class FitMultipleModel():
                  metrics_compute_frequency=None, warm_start=False, name="",
                  description="", **kwargs):
         # set the random seed for visit order/scheduling
+        madlib_lib_dir = os.path.dirname(module_pathname)
+        self.dl_py_files = os.path.abspath(madlib_lib_dir + "../modules/deep_learning")
         random.seed(1)
         if is_platform_pg():
             plpy.error(
@@ -564,7 +566,7 @@ class FitMultipleModel():
                         {self.model_weights_col} TEXT,
                         {self.model_arch_col} BYTEA
                     )
-                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/replace_ext_row.py model_output'
+                EXECUTE 'python {self.dl_py_files}/replace_ext_row.py model_output'
                     FORMAT 'CSV' DISTRIBUTED BY ({self.mst_key_col});
             """.format(**locals())
         plpy.execute(create_weights_to_update_tbl_write_query)
@@ -577,7 +579,7 @@ class FitMultipleModel():
                 {self.model_weights_col} TEXT,
                 {self.model_arch_col} BYTEA
             )
-            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/read_model_output_ext.py'
+            EXECUTE 'python {self.dl_py_files}/read_model_output_ext.py'
             ON HOST
             FORMAT 'CSV'
         """
@@ -598,7 +600,7 @@ class FitMultipleModel():
                     model_weights text,
                     {self.model_arch_col} bytea
                 )
-                EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/replace_ext_row.py mst_weights_input'
+                EXECUTE 'python {self.dl_py_files}/replace_ext_row.py mst_weights_input'
                     FORMAT 'CSV' DISTRIBUTED BY (__dist_key__);
             """.format(**locals())
 
@@ -636,7 +638,7 @@ class FitMultipleModel():
             DROP EXTERNAL TABLE IF EXISTS {self.drop_external_tables};
             CREATE READABLE EXTERNAL WEB TABLE {self.drop_external_tables}
                 (dummy INT)
-            EXECUTE 'python /home/gpadmin/madlib/build/src/ports/greenplum/?/modules/deep_learning/drop_external_tables.py'
+            EXECUTE 'python {self.dl_py_files}/drop_external_tables.py'
             ON HOST
             FORMAT 'TEXT'
         """
