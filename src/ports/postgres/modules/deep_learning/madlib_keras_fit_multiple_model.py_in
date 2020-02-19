@@ -216,7 +216,7 @@ class FitMultipleModel():
             plpy.info("\n"+self.info_str)
 
         write_model_output_q = """
-            INSERT INTO {self.model_output_table} AS
+            INSERT INTO {self.model_output_table}
                 SELECT
                     mst_key,
                     decode(model_weights, 'base64',
@@ -677,7 +677,6 @@ class FitMultipleModel():
                         ON mst_tbl.{self.model_id_col} = model_arch_tbl.{self.model_id_col}
         """.format(**locals())
         plpy.execute(insert_mst_weights_query)
-        plpy.info(insert_mst_weights_query)
 
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
