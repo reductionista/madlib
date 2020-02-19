@@ -76,13 +76,13 @@ Note that this function is disabled for Postgres.
 @MinWarning("warning")
 class FitMultipleModel():
     def __init__(self, schema_madlib, source_table, model_output_table,
-                 model_selection_table, num_iterations,
+                 model_selection_table, num_iterations, module_pathname=None,
                  use_gpus=False, validation_table=None,
                  metrics_compute_frequency=None, warm_start=False, name="",
                  description="", **kwargs):
         # set the random seed for visit order/scheduling
         madlib_lib_dir = os.path.dirname(module_pathname)
-        self.dl_py_files = os.path.abspath(madlib_lib_dir + "../modules/deep_learning")
+        self.dl_py_files = os.path.abspath(os.path.join(madlib_lib_dir,"../modules/deep_learning"))
         random.seed(1)
         if is_platform_pg():
             plpy.error(
@@ -221,7 +221,7 @@ class FitMultipleModel():
                     mst_key,
                     decode(model_weights, 'base64',
                     encode(model_arch, 'escape')::JSON
-                FROM {self.weights_to_update}
+                FROM {self.weights_to_update_tbl_read}
         """.format(**locals())
 
         plpy.execute(write_model_output_q)
@@ -550,11 +550,11 @@ class FitMultipleModel():
         3. can't use the same script     for initializing the weights and updating
             the weights
         """
-        hostnames = [ 'gpsix0',
-                      'gpsix1',
-                      'gpsix2',
-                      'gpsix3',
-                      'gpsix4' ]
+        hostnames = [ 'dl-perf-output0',
+                      'dl-perf-output1',
+                      'dl-perf-output2',
+                      'dl-perf-output3',
+                      'dl-perf-output4' ]
 
         segments_per_host = 4
 

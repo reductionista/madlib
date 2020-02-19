@@ -1398,6 +1398,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.madlib_keras_fit_multiple_model(
     description             VARCHAR
 ) RETURNS VOID AS $$
     PythonFunctionBodyOnly(`deep_learning', `madlib_keras_fit_multiple_model')
+    global module_pathname
     module_pathname='MODULE_PATHNAME'
     with AOControl(False):
         fit_obj = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
