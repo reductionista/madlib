@@ -219,7 +219,7 @@ class FitMultipleModel():
             INSERT INTO {self.model_output_table}
                 SELECT
                     mst_key,
-                    decode(model_weights, 'base64',
+                    decode(model_weights, 'base64'),
                     encode(model_arch, 'escape')::JSON
                 FROM {self.weights_to_update_tbl_read}
         """.format(**locals())
@@ -228,7 +228,7 @@ class FitMultipleModel():
         self.drop_ext_tables()
 
     def drop_ext_tables(self):
-        plpy.execute('SELECT * FROM {self.drop_external_tables}');
+        plpy.execute('SELECT * FROM {}'.format(self.drop_external_tables));
 #        plpy.execute('DROP EXTERNAL TABLE {self.weights_to_update_tbl_write}');
 #        plpy.execute('DROP EXTERNAL TABLE {self.weights_to_update_tbl_read}');
 #        plpy.execute('DROP EXTERNAL TABLE {self.mst_weights_tbl_write}');

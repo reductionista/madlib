@@ -1,0 +1,14 @@
+# Drops external table
+# (cleans up filesystem)
+import os
+import glob
+
+def remove_files(fnames):
+    for fname in fnames:
+        os.remove(fname)
+
+model_out_fnames = glob.glob("/tmp/model_output*")
+mst_weights_fnames = glob.glob("/tmp/mst_weights*")
+
+remove_files(model_out_fnames)
+remove_files(mst_weights_fnames)

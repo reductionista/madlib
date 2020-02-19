@@ -1,9 +1,0 @@
-# Drops external table
-# (cleans up filesystem)
-import sys
-import os
-
-seg_id = sys.stdin.readlines()[0]
-fname = "/tmp/" + sys.argv[1] + seg_id
-os.remove(fname_in)
-os.remove(fname_in + '.tmp')
