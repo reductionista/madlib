@@ -39,7 +39,7 @@ dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
 	int x_items = ArrayGetNItems(x_ndim, x_dims);
 	c_xdata = (long *)ARR_DATA_PTR(pg_xdata);
 
-	elog(WARNING, "xdata_type = %d", xdata_typ);
+//	elog(WARNING, "xdata_type = %d", xdata_typ);
 
     if (!Py_IsInitialized()) {
         Py_Initialize();
@@ -51,32 +51,29 @@ dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
 		PyList_SetItem(py_xlist, i, PyInt_FromLong(c_xdata[i]));
 	}
 
-    elog(WARNING, "Calling PyRun_String...");
-
 //	py_xlist = Py_BuildValue("[iiii]", 100,101,102,103);
 
-	const char* pythonScript = "result = 5 * xdata\n";
+	const char* pythonScript = "result = [ 5*x for x in xdata ]\n";
 //	const char* pythonScript = "result = 5 * [1,2,3]\n";
 	PyDict_SetItemString(localDictionary, "xdata", py_xlist);
 	PyRun_String(pythonScript, Py_file_input, localDictionary, localDictionary);
-    elog(WARNING, "Returned from PyRun_String.");
 	result = PyDict_GetItemString(localDictionary, "result");
 
-	for (Py_ssize_t i=0; i < PyList_Size(result); i++) {
-		val = PyList_GetItem(result, i);
-		elog(WARNING, "result[%ld] = %ld", i, PyInt_AsLong(val));
-	}
-	
-//	if (return_val == NULL) {
-//		elog(ERROR, "Exception in PyRun_String");
-//	} else {
-//		rv = return_val.getInt();
-		rv = 0;
+//	for (Py_ssize_t i=0; i < PyList_Size(result); i++) {
+//		val = PyList_GetItem(result, i);
+//		elog(WARNING, "result[%ld] = %ld", i, PyInt_AsLong(val));
 //	}
-	elog(WARNING, "Size of returned list: %ld", PyList_Size(result));
+	
+	if (result == NULL) {
+		elog(ERROR, "result PyObject was NULL ptr on return!");
+        rv = 0;
+	} else {
+	    rv = PyList_Size(result);
+//		elog(WARNING, "Return value: %ld",  rv);
+	}
 	Py_Finalize();
 
-    retval = Int32GetDatum(0);
+    retval = Int32GetDatum(rv);
 
     PG_RETURN_INT32(retval);
 }
