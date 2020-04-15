@@ -268,13 +268,13 @@ macro(add_madlib_connector_library IN_TARGET_NAME IN_LIB_DIR IN_LIB_LOADER)
     if(APPLE)
         set_target_properties(${IN_TARGET_NAME} PROPERTIES
             LINK_FLAGS
-            "-Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/../../../unexported_symbols_list.txt -bundle_loader \"${IN_LIB_LOADER}\"")
+            "-lpython2.7 -Wl,-unexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/../../../unexported_symbols_list.txt -bundle_loader \"${IN_LIB_LOADER}\"")
     endif(APPLE)
 
     if((NOT APPLE))
         set_target_properties(${IN_TARGET_NAME} PROPERTIES
             LINK_FLAGS
-            "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../../../library.ver")
+            "-lpython2.7 -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/../../../library.ver")
     endif((NOT APPLE))
 endmacro(add_madlib_connector_library)
 
