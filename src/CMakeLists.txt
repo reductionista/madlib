@@ -157,7 +157,7 @@ ExternalProject_Add(EP_eigen
 )
 
 include_directories(SYSTEM ${MAD_THIRD_PARTY}/src/EP_eigen)
-
+include_directories(SYSTEM /usr/local/Cellar/python@2/2.7.16_1/Frameworks/Python.framework/Versions/2.7/include/python2.7)
 
 # -- Third-party dependencies: Download the Python libraries ---
 

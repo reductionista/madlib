@@ -26,17 +26,17 @@ dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
 
     uint32_t b = Py_IsInitialized();
     if (b) {
-        elog(WARN, "Yup, python is aleady initialized.\n");
+        elog(WARNING, "Yup, python is aleady initialized.\n");
     } else {
-        elog(WARN, "Let's go ahead an initialize this...\n");
+        elog(WARNING, "Let's go ahead an initialize this...\n");
         Py_Initialize();
     }
 
-    elog(WARN, "Running: import keras...");
+    elog(WARNING, "Running: import keras...");
     rv = PyRun_SimpleString("import keras");
-    elog(WARN, "Python call returned with error code %ld", rv);
+    elog(WARNING, "Python call returned with error code %d", rv);
 
-    retval.Int32GetDatum(rv);
+    retval = Int32GetDatum(rv);
 
     PG_RETURN_INT32(retval);
 }
