@@ -12,67 +12,96 @@ PG_FUNCTION_INFO_V1(dlc_madlib_keras_fit);
 /*
  * @brief Call keras.fit() from a C UDF
  *
- * @param ydata
  * @param xdata
  *
  */
 Datum
 dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
-    ArrayType *pg_ydata           = PG_GETARG_ARRAYTYPE_P(0);
-    Oid     ydata_typ          = get_fn_expr_argtype(fcinfo->flinfo, 0);
-    ArrayType *pg_xdata           = PG_GETARG_ARRAYTYPE_P(1);
-    Oid     xdata_typ          = get_fn_expr_argtype(fcinfo->flinfo, 1);
-	PyObject *return_val;
+    bytea *pg_xdata           = PG_GETARG_BYTEA_P(0);
+    Oid     xdata_typ          = get_fn_expr_argtype(fcinfo->flinfo, 0);
     uint32_t rv = -1;
     Datum retval;
 	PyObject *result;
 //	PyObject* main = PyImport_AddModule("__main__");
 //	PyObject* globalDictionary = PyModule_GetDict(main);
 	PyObject* localDictionary = PyDict_New();
-	PyObject* val;
-	ArrayType *a;
-	PyObject *py_xlist;
-	long *c_xdata = NULL;
+	PyObject *a, *b;
+	char *xdata = NULL;
+    PyObject *py_xdata;
 
-	int x_ndim = ARR_NDIM(pg_xdata);
-	int *x_dims = ARR_DIMS(pg_xdata);
-	int x_items = ArrayGetNItems(x_ndim, x_dims);
-	c_xdata = (long *)ARR_DATA_PTR(pg_xdata);
+	elog(WARNING, "Starting function...");
 
-//	elog(WARNING, "xdata_type = %d", xdata_typ);
+    Py_ssize_t x_size = VARSIZE(pg_xdata) - VARHDRSZ;
+	elog(WARNING, "Got x_size = %zd", x_size);
+
+//	int x_ndim = ARR_NDIM(pg_xdata);
+//	int *x_dims = ARR_DIMS(pg_xdata);
+//	int x_items = ArrayGetNItems(x_ndim, x_dims);
+//	xdata = (long *)ARR_DATA_PTR(pg_xdata);
+
+    xdata = VARDATA(pg_xdata);
+	elog(WARNING, "Got VARDATA-xdata = %ld", xdata - (char *)pg_xdata);
 
     if (!Py_IsInitialized()) {
         Py_Initialize();
     }
 
+	elog(WARNING, "xdata type OID = %d", xdata_typ);
+	elog(WARNING, "len(xdata) = %zd", x_size);
+	elog(WARNING, "xdata[0:4] = %c%c%c%c", xdata[0], xdata[1], xdata[2], xdata[3]);
+
+    py_xdata = PyString_FromStringAndSize(xdata, x_size);
+    xdata[4] = '\0';
+    py_xdata = PyString_FromString(xdata);
+
+    char *buf = palloc(x_size);
+    buf = PyString_AsString(py_xdata);
+    elog(WARNING, "buf: %s", buf);
+
 //    PyCodeObject* code = (PyCodeObject*) Py_CompileString("a =1 # code ", "Description?", Py_eval_input);
 
-	py_xlist = PyList_New(x_items);
-	for (int i=0; i < x_items; i++) {
-//		elog(WARNING, "... appending %ld to py_xlist", c_xdata[i]);
-		PyList_SetItem(py_xlist, i, PyInt_FromLong(c_xdata[i]));
-	}
+//	py_xlist = PyList_New(x_items);
+//	for (int i=0; i < x_items; i++) {
+//		elog(WARNING, "... appending %ld to py_xlist", xdata[i]);
+//		PyList_SetItem(py_xlist, i, PyInt_FromLong(xdata[i]));
+//	}
 
 //	py_xlist = Py_BuildValue("[iiii]", 100,101,102,103);
 
 //	const char* pythonScript = "result = 5 * [1,2,3]\n";
-	PyDict_SetItemString(localDictionary, "xdata", py_xlist);
+//	const char* pythonScript = "result = 5\n";
+	const char* pythonScript = "a=1\nb=2\nc=[1, 2, 3]\nresult = len(c)\n";
+	PyDict_SetItemString(localDictionary, "xdata", py_xdata);
+	elog(WARNING, "Calling PyRun_String...");
 	PyRun_String(pythonScript, Py_file_input, localDictionary, localDictionary);
 	result = PyDict_GetItemString(localDictionary, "result");
+	a = PyDict_GetItemString(localDictionary, "a");
+	b = PyDict_GetItemString(localDictionary, "b");
 
 //	for (Py_ssize_t i=0; i < PyList_Size(result); i++) {
 //		val = PyList_GetItem(result, i);
 //		elog(WARNING, "result[%ld] = %ld", i, PyInt_AsLong(val));
 //	}
-	
+
+    if (a != NULL) {
+        elog(WARNING, "After call, a=%d", PyInt_AsLong(a));
+    }
+    if (b != NULL) {
+        elog(WARNING, "After call, a=%d", PyInt_AsLong(b));
+    }
 	if (result == NULL) {
-		elog(ERROR, "result PyObject was NULL ptr on return!");
+		elog(WARNING, "result PyObject was NULL ptr on return!");
         rv = 0;
 	} else {
-	    rv = PyList_Size(result);
-//		elog(WARNING, "Return value: %ld",  rv);
+	    rv = PyInt_AsLong(result);
+		elog(WARNING, "Return value: %ld",  rv);
+        Py_DECREF(result);
 	}
-	Py_Finalize();
+
+    Py_DECREF(py_xdata);
+    Py_DECREF(localDictionary);
+
+	Py_Finalize(); // will this mess up gpdb, if it still needs to call python later?
 
     retval = Int32GetDatum(rv);
 
