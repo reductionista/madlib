@@ -45,6 +45,8 @@ dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
         Py_Initialize();
     }
 
+//    PyCodeObject* code = (PyCodeObject*) Py_CompileString("a =1 # code ", "Description?", Py_eval_input);
+
 	py_xlist = PyList_New(x_items);
 	for (int i=0; i < x_items; i++) {
 //		elog(WARNING, "... appending %ld to py_xlist", c_xdata[i]);
@@ -53,7 +55,6 @@ dlc_madlib_keras_fit(PG_FUNCTION_ARGS) {
 
 //	py_xlist = Py_BuildValue("[iiii]", 100,101,102,103);
 
-	const char* pythonScript = "result = [ 5*x for x in xdata ]\n";
 //	const char* pythonScript = "result = 5 * [1,2,3]\n";
 	PyDict_SetItemString(localDictionary, "xdata", py_xlist);
 	PyRun_String(pythonScript, Py_file_input, localDictionary, localDictionary);
