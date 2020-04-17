@@ -157,7 +157,6 @@ ExternalProject_Add(EP_eigen
 )
 
 include_directories(SYSTEM ${MAD_THIRD_PARTY}/src/EP_eigen)
-include_directories(SYSTEM /usr/local/Cellar/python@2/2.7.16_1/Frameworks/Python.framework/Versions/2.7/include/python2.7)
 
 # -- Third-party dependencies: Download the Python libraries ---
 
@@ -322,6 +321,11 @@ endif((NOT APPLE) AND LIBSTDCXX_COMPAT AND CMAKE_COMPILER_IS_GNUCXX)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
+if (APPLE)
+    include_directories(SYSTEM /usr/local/Cellar/python@2/2.7.16_1/Frameworks/Python.framework/Versions/2.7/include/python2.7)
+else (APPLE)
+    include_directories(SYSTEM /usr/local/greenplum-db/ext/python/include/python2.7)
+endif (APPLE)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
     if(GNUCXX_VERSION VERSION_GREATER 4.4 OR GNUCXX_VERSION VERSION_EQUAL 4.4)
