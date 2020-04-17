@@ -2166,3 +2166,17 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.dlc_madlib_keras_fit(
 RETURNS INTEGER AS 'MODULE_PATHNAME'
 LANGUAGE C VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+
+CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.dlp_madlib_keras_fit(
+    xdata BYTEA
+)
+RETURNS INTEGER AS
+$$
+    result = xdata[:50]
+
+    if not result:
+        return -1
+    else:
+        return len(result)
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
