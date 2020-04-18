@@ -2161,22 +2161,45 @@ $$ LANGUAGE sql IMMUTABLE
 m4_ifdef(`\_\_HAS_FUNCTION_PROPERTIES\_\_', `CONTAINS SQL', `');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.dlc_madlib_keras_fit(
-    xdata BYTEA
+    state int, xdata BYTEA
 )
 RETURNS INTEGER AS 'MODULE_PATHNAME'
 LANGUAGE C VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
 
 CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.dlp_madlib_keras_fit(
+    state int,
     xdata BYTEA
 )
-RETURNS INTEGER AS
+RETURNS int AS
 $$
-    result = xdata[:50]
+#    from copy import copy
+#    result = xdata + 'hi'
+    result = xdata
 
     if not result:
         return -1
     else:
         return len(result)
-$$ LANGUAGE plpythonu VOLATILE
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `CONTAINS SQL', `');
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.dlp_madlib_keras_step(
+    BYTEA
+);
+CREATE AGGREGATE MADLIB_SCHEMA.dlp_madlib_keras_step(
+BYTEA
+)(
+    STYPE=int,
+    SFUNC=MADLIB_SCHEMA.dlp_madlib_keras_fit
+);
+
+DROP AGGREGATE IF EXISTS MADLIB_SCHEMA.dlc_madlib_keras_step(
+    BYTEA
+);
+CREATE AGGREGATE MADLIB_SCHEMA.dlc_madlib_keras_step(
+BYTEA
+)(
+    STYPE=int,
+    SFUNC=MADLIB_SCHEMA.dlc_madlib_keras_fit
+);

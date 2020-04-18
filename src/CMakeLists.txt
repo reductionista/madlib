@@ -257,6 +257,7 @@ macro(add_madlib_connector_library IN_TARGET_NAME IN_LIB_DIR IN_LIB_LOADER)
         MODULE
         ${IN_LIBRARY_SOURCES}
     )
+
     add_dependencies(${IN_TARGET_NAME} EP_eigen)
     set_target_properties(${IN_TARGET_NAME} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${IN_LIB_DIR}"
