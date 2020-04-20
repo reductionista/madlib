@@ -502,11 +502,14 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                                                   segments_per_host,
                                                   model_architecture, compile_params,
                                                   custom_function_map)
-    if not state:
+    if 'agg_image_count' not in SD:
+        plpy.info('state is none, setting weights')
         agg_image_count = 0
+        SD['agg_image_count'] = agg_image_count
         set_model_weights(segment_model, prev_serialized_weights)
     else:
-        agg_image_count = float(state)
+        plpy.info('state is not none')
+        agg_image_count = SD['agg_image_count']
 
     # Prepare the data
     x_train = np_array_float32(independent_var, independent_var_shape)
@@ -559,7 +562,8 @@ def get_state_to_return(segment_model, is_last_row, is_multiple_model, agg_image
             new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
                 agg_image_count, updated_model_weights)
     else:
-        new_state = float(agg_image_count)
+        new_state = None
+        # new_state = float(agg_image_count)
 
     return new_state
 

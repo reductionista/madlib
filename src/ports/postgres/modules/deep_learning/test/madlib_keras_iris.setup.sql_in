@@ -217,7 +217,7 @@ SELECT validation_preprocessor_dl('iris_data_one_hot_encoded',    -- Source tabl
 
 DROP TABLE IF EXISTS iris_model_arch;
 -- NOTE: The seed is set to 0 for every layer.
-SELECT load_keras_model('iris_model_arch',  -- Output table,
+SELECT madlib.load_keras_model('iris_model_arch',  -- Output table,
 $$
 {
 "class_name": "Sequential",
