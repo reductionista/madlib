@@ -44,6 +44,7 @@ from utilities.utilities import is_platform_pg
 from utilities.utilities import get_seg_number
 from utilities.utilities import get_segments_per_host
 from utilities.utilities import rename_table
+from utilities.utilities import plpy_execute_debug
 
 import json
 from collections import defaultdict
@@ -240,6 +241,7 @@ class FitMultipleModel():
                                     "{0}: {1} sec\n".format(iter,
                                                             end_iteration -
                                                             start_iteration)
+
             if should_compute_metrics_this_iter(iter,
                                                 self.metrics_compute_frequency,
                                                 self.num_iterations):
@@ -593,6 +595,14 @@ class FitMultipleModel():
             self.update_info_table(mst, True)
             if self.validation_table:
                 self.update_info_table(mst, False)
+    
+    def print_mst_keys(self, table):
+        res = plpy.execute('select gp_segment_id as g, mst_key from {0} order by mst_key'.format(table))
+        plpy.info("printing mst keys for {0}".format(table))
+        for r in res:
+            s = r['g']
+            m = r['mst_key']
+            plpy.info("segment_id:{}, mst_key:{}".format(s,m))
 
     def run_training(self, mst_idx):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
@@ -606,6 +616,7 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
+        start_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
         mst_weights_query = """
             CREATE {self.unlogged_table} TABLE {self.mst_weights_tbl} AS
@@ -621,10 +632,10 @@ class FitMultipleModel():
         """.format(dist_key_col=dist_key_col,
                    **locals())
         plpy.execute(mst_weights_query)
-        use_gpus = self.use_gpus if self.use_gpus else False
+        plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
+        udf_time = time.time()
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
-            
             SELECT {self.schema_madlib}.fit_transition(NULL, {mb_dep_var_col},
                 {mb_indep_var_col},
                 {self.dep_shape_col},
@@ -646,9 +657,8 @@ class FitMultipleModel():
                 {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
                 ,src.{dist_key_col} AS {dist_key_col}
             FROM {self.source_table} src JOIN {self.mst_weights_tbl}
-                USING ({dist_key_col})
+                USING ({dist_key_col}) 
             WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
-            AND {self.model_weights_col} is not NULL --TODO make sure len runs on segment
             --GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
             
             DISTRIBUTED BY({dist_key_col})
@@ -660,19 +670,34 @@ class FitMultipleModel():
                        self=self
                        )
         plpy.execute(uda_query)
-        # plpy.info(plpy.execute(("select count(*) as c from {self.weights_to_update_tbl}".
-        #           format(self=self)))[0]['c'])
+
+        plpy.info("|_uda_time_|{}|".format(time.time() - uda_time))
+        #plpy.info("count of weights_to_update_tbl is {}".format(plpy.execute("select count(*) as c from {self.weights_to_update_tbl}".format(self=self))[0]['c']))
+        #plpy.info("count of null weights_to_update_tbl is {}".format(plpy.execute("select count(*) as c from {self.weights_to_update_tbl} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
+        # plpy.info("count of udf output " + str(plpy.execute(("select count(*) as c from {self.weights_to_update_tbl}".
+        #           format(self=self)))[0]['c']))
         # plpy.info(plpy.execute(("select count(*) as c from {self.model_output_table}".
         #                         format(self=self)))[0]['c'])
+        #plpy.info("count of model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table}".format(self=self))[0]['c']))
+        #plpy.info("count of null model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
+        update_time = time.time()
         update_query = """
             UPDATE {self.model_output_table}
             SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
             FROM {self.weights_to_update_tbl}
             WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
+            AND {self.weights_to_update_tbl}.{self.model_weights_col} is NOT NULL
         """.format(self=self)
-        plpy.execute(update_query)
 
+        plpy_execute_debug(update_query)
+        plpy.info("|_update_time_|{}|".format(time.time() - update_time))
+        #plpy.info("count of model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table}".format(self=self))[0]['c']))
+        #plpy.info("count of null model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
+        truncate_time = time.time()
         self.truncate_and_drop_tables()
+
+        plpy.info("|_truncate_time_|{}|".format(time.time() - truncate_time))
+        plpy.info("|_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
 
     def truncate_and_drop_tables(self):
         """
