@@ -59,6 +59,8 @@ class SD_STORE:
     def clear_SD(SD):
         del SD[SD_STORE.SEGMENT_MODEL]
         del SD[SD_STORE.SESS]
+        if 'agg_image_count' in SD:
+            del SD['agg_image_count']
 
 def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
                                model_architecture, compile_params, custom_function_map):
@@ -503,12 +505,10 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                                                   model_architecture, compile_params,
                                                   custom_function_map)
     if 'agg_image_count' not in SD:
-        plpy.info('state is none, setting weights')
         agg_image_count = 0
         SD['agg_image_count'] = agg_image_count
         set_model_weights(segment_model, prev_serialized_weights)
     else:
-        plpy.info('state is not none')
         agg_image_count = SD['agg_image_count']
 
     # Prepare the data

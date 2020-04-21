@@ -44,6 +44,7 @@ from utilities.utilities import is_platform_pg
 from utilities.utilities import get_seg_number
 from utilities.utilities import get_segments_per_host
 from utilities.utilities import rename_table
+from utilities.utilities import plpy_execute_debug
 
 import json
 from collections import defaultdict
@@ -240,6 +241,7 @@ class FitMultipleModel():
                                     "{0}: {1} sec\n".format(iter,
                                                             end_iteration -
                                                             start_iteration)
+
             if should_compute_metrics_this_iter(iter,
                                                 self.metrics_compute_frequency,
                                                 self.num_iterations):
@@ -659,9 +661,10 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
+        # plpy_execute_debug(uda_query)
         plpy.execute(uda_query)
-        # plpy.info(plpy.execute(("select count(*) as c from {self.weights_to_update_tbl}".
-        #           format(self=self)))[0]['c'])
+        # plpy.info("count of udf output " + str(plpy.execute(("select count(*) as c from {self.weights_to_update_tbl}".
+        #           format(self=self)))[0]['c']))
         # plpy.info(plpy.execute(("select count(*) as c from {self.model_output_table}".
         #                         format(self=self)))[0]['c'])
         update_query = """
