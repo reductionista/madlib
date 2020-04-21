@@ -511,6 +511,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     else:
         agg_image_count = SD['agg_image_count']
 
+
     # Prepare the data
     x_train = np_array_float32(independent_var, independent_var_shape)
     y_train = np_array_int16(dependent_var, dependent_var_shape)
@@ -522,6 +523,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
 
     # Aggregating number of images, loss and accuracy
     agg_image_count += len(x_train)
+    SD['agg_image_count'] = agg_image_count
+    plpy.info("current seg id {}, agg image count {}".format(current_seg_id, agg_image_count))
     total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
                                                       images_per_seg)
     is_last_row = agg_image_count == total_images
