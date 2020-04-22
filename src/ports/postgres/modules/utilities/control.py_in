@@ -244,8 +244,10 @@ class AOControl(ContextDecorator):
              appendonly=false,blocksize=32768,compresstype=none,checksum=true,orientation=row
         """
         self.storage_options_dict = extract_keyvalue_params(gp_default_storage_options_str)
+        plpy.info('gp_default_storage_options Before = {}'.format(self._gp_default_storage_options))
         self.storage_options_dict['appendonly'] = bool(
             strtobool(self.storage_options_dict['appendonly']))
+        plpy.info('gp_default_storage_options After = {}'.format(self._gp_default_storage_options))
 
     @property
     def _gp_default_storage_options(self):

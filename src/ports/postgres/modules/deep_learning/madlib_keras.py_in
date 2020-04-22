@@ -470,15 +470,15 @@ def update_model(segment_model, prev_serialized_weights):
     """
     model_shapes = get_model_shapes(segment_model)
     model_weights = madlib_keras_serializer.deserialize_as_nd_weights(
-        prev_serialized_weights, model_shapes)
+            prev_serialized_weights, model_shapes)
     segment_model.set_weights(model_weights)
 
 def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
-                   independent_var_shape, model_architecture,
-                   compile_params, fit_params, dist_key, dist_key_mapping,
-                   current_seg_id, segments_per_host, images_per_seg, use_gpus,
-                   accessible_gpus_for_seg, prev_serialized_weights, is_final_iteration=True,
-                   is_multiple_model=False, custom_function_map=None, **kwargs):
+        independent_var_shape, model_architecture,
+        compile_params, fit_params, dist_key, dist_key_mapping,
+        current_seg_id, segments_per_host, images_per_seg, use_gpus,
+        accessible_gpus_for_seg, prev_serialized_weights, is_final_iteration=True,
+        is_multiple_model=False, custom_function_map=None, **kwargs):
     """
     This transition function is common for madlib_keras_fit() and
     madlib_keras_fit_multiple_model(). The important difference between
@@ -495,23 +495,37 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         b. keras session is cleared at the end of the final iteration,
         i.e, last row of last iteration.
     """
+    trans_enter_time = time.time()
+
     if not independent_var or not dependent_var:
+        trans_exit_time = time.time();
+        plpy.error("fit_transition called with no data!")
+        SD['trans_exit_time'] = trans_exit_time
         return state
     SD = kwargs['SD']
+
+    trans_exit_time = None
+    if 'trans_exit_time' in SD:
+        trans_exit_time = SD['trans_exit_time']
+        SD['trans_exit_time'] = 0
+
     device_name = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[current_seg_id], current_seg_id)
 
     segment_model, sess = get_init_model_and_sess(SD, device_name,
-                                                  accessible_gpus_for_seg[current_seg_id],
-                                                  segments_per_host,
-                                                  model_architecture, compile_params,
-                                                  custom_function_map)
+        accessible_gpus_for_seg[current_seg_id],
+        segments_per_host,
+        model_architecture, compile_params,
+        custom_function_map)
+
     if 'agg_image_count' not in SD:
+        if trans_exit_time:
+            plpy.info("|_gpdb_hop_time_|{}|".format(trans_enter_time - trans_exit_time))
         agg_image_count = 0
         SD['agg_image_count'] = agg_image_count
         set_model_weights(segment_model, prev_serialized_weights)
     else:
+        plpy.info("|_gpdb_row_time_|{}|".format(trans_enter_time - trans_exit_time))
         agg_image_count = SD['agg_image_count']
-
 
     # Prepare the data
     x_train = np_array_float32(independent_var, independent_var_shape)
@@ -533,11 +547,15 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     #plpy.info("is last row: {}, agg_image_count: {}, total_images: {}".format(is_last_row, agg_image_count, total_images))
     return_state = get_state_to_return(segment_model, is_last_row, is_multiple_model,
                                   agg_image_count, total_images)
+
+    trans_exit_time = time.time()
+    plpy.info("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
     if is_last_row:
         if is_final_iteration or is_multiple_model:
             SD_STORE.clear_SD(SD)
             clear_keras_session(sess)
 
+    SD['trans_exit_time'] = trans_exit_time
     return return_state
 
 def get_state_to_return(segment_model, is_last_row, is_multiple_model, agg_image_count,
