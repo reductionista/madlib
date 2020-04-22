@@ -60,6 +60,7 @@ class SD_STORE:
         del SD[SD_STORE.SEGMENT_MODEL]
         del SD[SD_STORE.SESS]
         if 'agg_image_count' in SD:
+            #plpy.info("deleting agg_image_count")
             del SD['agg_image_count']
 
 def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
@@ -524,10 +525,12 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Aggregating number of images, loss and accuracy
     agg_image_count += len(x_train)
     SD['agg_image_count'] = agg_image_count
-    plpy.info("current seg id {}, agg image count {}".format(current_seg_id, agg_image_count))
+    #if current_seg_id == 0:
+    #    plpy.info("current seg id {}, agg image count {}".format(current_seg_id, agg_image_count))
     total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
                                                       images_per_seg)
     is_last_row = agg_image_count == total_images
+    #plpy.info("is last row: {}, agg_image_count: {}, total_images: {}".format(is_last_row, agg_image_count, total_images))
     return_state = get_state_to_return(segment_model, is_last_row, is_multiple_model,
                                   agg_image_count, total_images)
     if is_last_row:
@@ -566,7 +569,6 @@ def get_state_to_return(segment_model, is_last_row, is_multiple_model, agg_image
                 agg_image_count, updated_model_weights)
     else:
         new_state = None
-        # new_state = float(agg_image_count)
 
     return new_state
 

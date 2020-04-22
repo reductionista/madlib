@@ -116,11 +116,12 @@ class FitMultipleModel():
         self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
-        if self.use_gpus:
-            self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
-                self.schema_madlib, self.segments_per_host, self.module_name)
-        else:
-            self.accessible_gpus_for_seg = get_seg_number()*[0]
+        #if self.use_gpus:
+        #    self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
+        #        self.schema_madlib, self.segments_per_host, self.module_name)
+        #else:
+        #    self.accessible_gpus_for_seg = get_seg_number()*[0]
+        self.accessible_gpus_for_seg = 20 * [4]
 
         self.original_model_output_table = model_output_table
         if self.original_model_output_table:
@@ -595,6 +596,14 @@ class FitMultipleModel():
             self.update_info_table(mst, True)
             if self.validation_table:
                 self.update_info_table(mst, False)
+    
+    def print_mst_keys(self, table):
+        res = plpy.execute('select gp_segment_id as g, mst_key from {0} order by mst_key'.format(table))
+        plpy.info("printing mst keys for {0}".format(table))
+        for r in res:
+            s = r['g']
+            m = r['mst_key']
+            plpy.info("segment_id:{}, mst_key:{}".format(s,m))
 
     def run_training(self, mst_idx):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
@@ -627,7 +636,8 @@ class FitMultipleModel():
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
-            
+            SELECT * FROM
+            (
             SELECT {self.schema_madlib}.fit_transition(NULL, {mb_dep_var_col},
                 {mb_indep_var_col},
                 {self.dep_shape_col},
@@ -649,9 +659,10 @@ class FitMultipleModel():
                 {self.mst_weights_tbl}.{self.mst_key_col} AS {self.mst_key_col}
                 ,src.{dist_key_col} AS {dist_key_col}
             FROM {self.source_table} src JOIN {self.mst_weights_tbl}
-                USING ({dist_key_col})
+                USING ({dist_key_col}) 
             WHERE {self.mst_weights_tbl}.{self.mst_key_col} IS NOT NULL
-            AND {self.model_weights_col} is not NULL --TODO make sure len runs on segment
+            ) as foo
+            WHERE foo.{self.model_weights_col} is not NULL
             --GROUP BY src.{dist_key_col}, {self.mst_weights_tbl}.{self.mst_key_col}
             
             DISTRIBUTED BY({dist_key_col})
@@ -662,8 +673,9 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
-        # plpy_execute_debug(uda_query)
         plpy.execute(uda_query)
+        #plpy.info("count of weights_to_update_tbl is {}".format(plpy.execute("select count(*) as c from {self.weights_to_update_tbl}".format(self=self))[0]['c']))
+        #plpy.info("count of null weights_to_update_tbl is {}".format(plpy.execute("select count(*) as c from {self.weights_to_update_tbl} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
         # plpy.info("count of udf output " + str(plpy.execute(("select count(*) as c from {self.weights_to_update_tbl}".
         #           format(self=self)))[0]['c']))
         # plpy.info(plpy.execute(("select count(*) as c from {self.model_output_table}".
