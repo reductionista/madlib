@@ -557,6 +557,7 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
+        start_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
         mst_weights_query = """
             CREATE {self.unlogged_table} TABLE {self.mst_weights_tbl} AS
@@ -572,6 +573,8 @@ class FitMultipleModel():
         """.format(dist_key_col=dist_key_col,
                    **locals())
         plpy.execute(mst_weights_query)
+        plpy.info("hop time : {}".format(time.time() - start_time))
+        uda_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
@@ -607,7 +610,9 @@ class FitMultipleModel():
                        self=self
                        )
         plpy.execute(uda_query)
+        plpy.info("uda time : {}".format(time.time() - uda_time))
 
+        update_time = time.time()
         update_query = """
             UPDATE {self.model_output_table}
             SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
@@ -615,8 +620,13 @@ class FitMultipleModel():
             WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         """.format(self=self)
         plpy.execute(update_query)
+        plpy.info("update time: {}".format(time.time() - update_time))
 
+        truncate_time = time.time()
         self.truncate_and_drop_tables()
+        plpy.info("truncate time : {}".format(time.time() - truncate_time))
+        plpy.info("##########end mst hop {}:{}s############".format(mst_idx, time.time()-start_time))
+
 
     def truncate_and_drop_tables(self):
         """
