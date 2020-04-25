@@ -44,6 +44,7 @@ from utilities.utilities import is_platform_pg
 from utilities.utilities import get_seg_number
 from utilities.utilities import get_segments_per_host
 from utilities.utilities import rename_table
+from utilities.utilities import plpy_execute_debug
 
 import json
 from collections import defaultdict
@@ -610,7 +611,7 @@ class FitMultipleModel():
                        self=self
                        )
         plpy.execute(uda_query)
-        plpy.info("uda time : {}".format(time.time() - uda_time))
+        plpy.info("|_uda_time_|{}|".format(time.time() - uda_time))
 
         update_time = time.time()
         update_query = """
@@ -619,14 +620,15 @@ class FitMultipleModel():
             FROM {self.weights_to_update_tbl}
             WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         """.format(self=self)
-        plpy.execute(update_query)
-        plpy.info("update time: {}".format(time.time() - update_time))
 
+        plpy_execute_debug(update_query)
+        plpy.info("|_update_time_|{}|".format(time.time() - update_time))
+        #plpy.info("count of model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table}".format(self=self))[0]['c']))
+        #plpy.info("count of null model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
         truncate_time = time.time()
         self.truncate_and_drop_tables()
-        plpy.info("truncate time : {}".format(time.time() - truncate_time))
-        plpy.info("##########end mst hop {}:{}s############".format(mst_idx, time.time()-start_time))
-
+        plpy.info("_truncate_time_|{}|".format(time.time() - truncate_time))
+        plpy.info("_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
 
     def truncate_and_drop_tables(self):
         """
