@@ -338,6 +338,7 @@ class FitMultipleModel():
                                  {dist_key_col} INTEGER,
                                  {self.mst_key_col} INTEGER,
                                  {self.object_map_col} BYTEA)
+                                 DISTRIBUTED BY ({dist_key_col})
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(mst_temp_query)
         for mst, dist_key in zip(mst_row, self.dist_keys):
@@ -368,10 +369,12 @@ class FitMultipleModel():
     def create_model_output_table(self):
         output_table_create_query = """
                                     CREATE TABLE {self.model_output_table}
-                                    ({self.mst_key_col} INTEGER PRIMARY KEY,
+                                    ({self.mst_key_col} INTEGER,
                                      {self.model_weights_col} BYTEA,
-                                     {self.model_arch_col} JSON)
-                                    """.format(self=self)
+                                     {self.model_arch_col} JSON,
+                                     {dist_key_col} INTEGER PRIMARY KEY)
+                                     DISTRIBUTED BY ({dist_key_col})
+                                    """.format(dist_key_col=dist_key_col, self=self)
         plpy.execute(output_table_create_query)
         self.initialize_model_output_and_info()
 
@@ -384,8 +387,8 @@ class FitMultipleModel():
         """
         plpy.execute("""
             CREATE TABLE {self.model_output_table} (
-            LIKE {self.original_model_output_table} INCLUDING indexes);
-            """.format(self=self))
+            LIKE {self.original_model_output_table} INCLUDING indexes) DISTRIBUTED BY ({dist_key_col})
+            """.format(dist_key_col=dist_key_col, self=self))
 
         plpy.execute("""INSERT INTO {self.model_output_table}
             SELECT * FROM {self.original_model_output_table};
@@ -424,7 +427,9 @@ class FitMultipleModel():
                                        """.format(self=self)
 
         plpy.execute(info_table_create_query)
-        for mst in self.msts:
+        for index, mst in enumerate(self.msts_for_schedule):
+            if not mst:
+                continue
             model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
                                                                mst[self.model_id_col])
 
@@ -486,10 +491,12 @@ class FitMultipleModel():
                 output_table_insert_query = """
                                     INSERT INTO {self.model_output_table}(
                                         {self.mst_key_col}, {self.model_weights_col},
-                                        {self.model_arch_col})
-                                    VALUES ({mst_key}, $1, $2)
+                                        {self.model_arch_col}, {dist_key_col})
+                                    VALUES ({mst_key}, $1, $2, {dist_key})
                                        """.format(self=self,
-                                                  mst_key=mst[self.mst_key_col])
+                                                  mst_key=mst[self.mst_key_col],
+                                                  dist_key_col=dist_key_col,
+                                                  dist_key=self.dist_keys[index])
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
@@ -634,7 +641,7 @@ class FitMultipleModel():
                    **locals())
         plpy.execute(mst_weights_query)
         plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
-        udf_time = time.time()
+        uda_time = time.time()
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_transition(NULL, {mb_dep_var_col},
@@ -686,9 +693,9 @@ class FitMultipleModel():
             UPDATE {self.model_output_table}
             SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
             FROM {self.weights_to_update_tbl}
-            WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
+            WHERE {self.model_output_table}.{dist_key_col} = {self.weights_to_update_tbl}.{dist_key_col}
             AND {self.weights_to_update_tbl}.{self.model_weights_col} is NOT NULL
-        """.format(self=self)
+        """.format(dist_key_col=dist_key_col, self=self)
 
         plpy_execute_debug(update_query)
         plpy.info("|_update_time_|{}|".format(time.time() - update_time))
