@@ -574,7 +574,7 @@ class FitMultipleModel():
         """.format(dist_key_col=dist_key_col,
                    **locals())
         plpy.execute(mst_weights_query)
-        plpy.info("hop time : {}".format(time.time() - start_time))
+        plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
         uda_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
         uda_query = """
@@ -627,8 +627,9 @@ class FitMultipleModel():
         #plpy.info("count of null model_output_table is {}".format(plpy.execute("select count(*) as c from {self.model_output_table} where {self.model_weights_col} is NULL".format(self=self))[0]['c']))
         truncate_time = time.time()
         self.truncate_and_drop_tables()
-        plpy.info("_truncate_time_|{}|".format(time.time() - truncate_time))
-        plpy.info("_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
+
+        plpy.info("|_truncate_time_|{}|".format(time.time() - truncate_time))
+        plpy.info("|_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
 
     def truncate_and_drop_tables(self):
         """
