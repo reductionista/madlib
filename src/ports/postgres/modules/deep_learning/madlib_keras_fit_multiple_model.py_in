@@ -633,7 +633,7 @@ class FitMultipleModel():
         """.format(dist_key_col=dist_key_col,
                    **locals())
         plpy.execute(mst_weights_query)
-        plpy.info("hop time : {}".format(time.time() - start_time))
+        plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
         udf_time = time.time()
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
@@ -697,8 +697,8 @@ class FitMultipleModel():
         truncate_time = time.time()
         self.truncate_and_drop_tables()
 
-        plpy.info("_truncate_time_|{}|".format(time.time() - truncate_time))
-        plpy.info("_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
+        plpy.info("|_truncate_time_|{}|".format(time.time() - truncate_time))
+        plpy.info("|_run_training_time_{}|{}|".format(mst_idx, time.time()-start_time))
 
     def truncate_and_drop_tables(self):
         """
