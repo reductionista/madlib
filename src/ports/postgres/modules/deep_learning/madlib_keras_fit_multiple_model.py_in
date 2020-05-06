@@ -646,6 +646,13 @@ class FitMultipleModel():
 
         start_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
+
+# TODO: replace hop query with these:
+#        CREATE TABLE hop_plan AS SELECT o.__dist_key__ AS old_dist_key, sched.__dist_key__ AS new_dist_key from model_output o join current_schedule sched USING (mst_key) DISTRIBUTED BY (old_dist_key);
+
+#        CREATE TABLE model_input as SELECT o.mst_key, o.model_weights, o.model_arch, h.__dist_key__ FROM model_output o join hop_plan h on h.old_dist_key=o.__dist_key__ DISTRIBUTED BY (__dist_key__);
+#        truncate_and_drop('hop_plan');
+
         hop_query = """set statement_mem='2000MB';
             CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
                 SELECT sched.{dist_key_col},
