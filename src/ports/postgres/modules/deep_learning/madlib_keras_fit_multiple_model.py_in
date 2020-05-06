@@ -472,7 +472,7 @@ class FitMultipleModel():
             loss_type = loss_type if loss_type else 'NULL'
 
             info_table_insert_query = """
-                            INSERT INTO {self.model_info_table}({self.mst_key_col},
+                            INSERT INTO {self.model_info_table} ({self.mst_key_col},
                                         {self.model_id_col}, {self.compile_params_col},
                                         {self.fit_params_col}, model_type, model_size,
                                         metrics_type, loss_type)
@@ -646,7 +646,7 @@ class FitMultipleModel():
 
         start_time = time.time()
         use_gpus = self.use_gpus if self.use_gpus else False
-        hop_query = """
+        hop_query = """set statement_mem='2000MB';
             CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
                 SELECT sched.{dist_key_col},
                        sched.{self.compile_params_col}::TEXT,
@@ -678,9 +678,9 @@ class FitMultipleModel():
         self.truncate_and_drop(self.model_output_tbl)
         plpy.info("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
 
-        uda_time = time.time()
+        udf_time = time.time()
 
-        uda_query = """
+        udf_query = """
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
             SELECT model_in.{self.mst_key_col},
                 {self.schema_madlib}.fit_transition(NULL, {mb_dep_var_col},
@@ -714,19 +714,13 @@ class FitMultipleModel():
                        use_gpus=use_gpus,
                        self=self
                        )
-        plpy.execute(uda_query)
+        plpy.execute(udf_query)
 
-        plpy.info("|_uda_time_|{}|".format(time.time() - uda_time))
+        plpy.info("|_udf_time_|{}|".format(time.time() - udf_time))
 
-#        insert_query = """
-#            INSERT INTO {self.model_output_tbl}
-#            SELECT wtu.{self.mst_key_col},
-#                   wtu.{self.model_weights_col},
-#                   wtu.{self.model_arch_col},
-#                   wtu.{dist_key_col}
-#            FROM {self.weights_to_update_tbl} wtu
-#            WHERE wtu.{self.model_weights_col} is NOT NULL
-#        """.format(dist_key_col=dist_key_col, self=self)
+        delete_time = time.time()
+        plpy_execute_debug("DELETE FROM {self.model_output_tbl} WHERE model_arch IS NULL".format(self=self))
+        plpy.info("|_delete_time_|{}|".format(time.time() - delete_time))
 
         # Copy over any extra models that were just resting
         #  on the bench this hop.
@@ -748,6 +742,8 @@ class FitMultipleModel():
         insert_time = time.time()
         copy_untrained_models_query = """
             INSERT INTO {self.model_output_tbl}
+                ({self.mst_key_col}, {self.model_weights_col},
+                 {self.model_arch_col}, {dist_key_col})
                 SELECT {self.mst_key_col},
                        {self.model_weights_col}::BYTEA,
                        {self.model_arch_col}::JSON,

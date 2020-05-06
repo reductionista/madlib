@@ -4,7 +4,7 @@ DROP TABLE if exists places10_train_mult_model, places10_train_mult_model_summar
 SELECT madlib_keras_fit_multiple_model(
     'places10_train_batched',
     'places10_train_mult_model',
-    'mst_table',
+    'mst_table_places10',
     1,
     TRUE
 );
