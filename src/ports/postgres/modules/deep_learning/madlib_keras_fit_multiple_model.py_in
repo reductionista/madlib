@@ -20,6 +20,10 @@
 import plpy
 import time
 import sys
+import json
+import random
+import datetime
+from collections import defaultdict
 
 from keras.models import *
 from madlib_keras import compute_loss_and_metrics
@@ -44,12 +48,13 @@ from utilities.utilities import is_platform_pg
 from utilities.utilities import get_seg_number
 from utilities.utilities import get_segments_per_host
 from utilities.utilities import rename_table
-from utilities.utilities import plpy_execute_debug
+import utilities.debug as DEBUG
 
-import json
-from collections import defaultdict
-import random
-import datetime
+DEBUG.timings_enabled = True
+DEBUG.mst_keys_enabled = True
+DEBUG.plpy_execute_enabled = True
+DEBUG.plpy_info_enabled = True
+
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
 dist_key_col = DISTRIBUTION_KEY_COLNAME
@@ -181,6 +186,9 @@ class FitMultipleModel():
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
         self.max_dist_key = sorted(self.dist_keys)[-1]
         self.extra_dist_keys = []
+
+        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
+        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.dist_keys))
 
         num_msts = len(self.msts)
         num_dist_keys = len(self.dist_keys)
@@ -625,15 +633,7 @@ class FitMultipleModel():
             self.update_info_table(mst, True)
             if self.validation_table:
                 self.update_info_table(mst, False)
-    
-    def print_mst_keys(self, table):
-        res = plpy.execute('select gp_segment_id as g, mst_key from {0} order by mst_key'.format(table))
-        plpy.info("printing mst keys for {0}".format(table))
-        for r in res:
-            s = r['g']
-            m = r['mst_key']
-            plpy.info("segment_id:{}, mst_key:{}".format(s,m))
-
+   
     def run_training(self, hop):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
         # (creates a slice which stays until the session is disconnected)
@@ -646,15 +646,6 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
-
-        res = plpy.execute("""
-            SELECT {self.mst_key_col}, {dist_key_col}, gp_segment_id AS seg_id
-            FROM {self.model_output_tbl} ORDER BY gp_segment_id
-        """.format(dist_key_col=dist_key_col, self=self))
-
-        for row in res:
-            plpy.info("_BEFORE_HOP_|mst_key = {0}, dist_key = {1}, seg_id = {2}|".format(
-                row['mst_key'], row[dist_key_col], row['seg_id']))
 
         start_time = time.time()
 
@@ -671,8 +662,10 @@ class FitMultipleModel():
             DISTRIBUTED BY (old_dist_key);
         """.format(dist_key_col=dist_key_col, self=self)
 
-        plpy_execute_debug(create_hop_tbl_query)
-        plpy.info("|_prehop_time_|{}|".format(time.time() - start_time))
+        plpy.execute(create_hop_tbl_query)
+
+        DEBUG.print_timings("|_prehop_time_|{}|".format(time.time() - start_time))
+        DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
 
         hop_query = """
             CREATE TABLE {self.model_input_tbl} AS
@@ -687,23 +680,17 @@ class FitMultipleModel():
                 DISTRIBUTED BY ({dist_key_col});
         """.format(dist_key_col=dist_key_col, self=self)
 
-        plpy_execute_debug(hop_query)
+        DEBUG.plpy.execute(hop_query)
         self.truncate_and_drop(self.hop_plan_tbl)
 
-        plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
+        DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
 
-        res = plpy.execute("""
-            SELECT {self.mst_key_col}, {dist_key_col}, gp_segment_id AS seg_id
-            FROM {self.model_input_tbl} ORDER BY gp_segment_id
-        """.format(dist_key_col=dist_key_col, self=self))
-
-        for row in res:
-            plpy.info("_AFTER_HOP_|mst_key = {0}, dist_key = {1}, seg_id = {2}|".format(
-                row['mst_key'], row[dist_key_col], row['seg_id']))
+        DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
         truncate_time = time.time()
         self.truncate_and_drop(self.model_output_tbl)
-        plpy.info("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
+
+        DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
 
         udf_time = time.time()
 
@@ -751,11 +738,11 @@ class FitMultipleModel():
                        )
         plpy.execute(udf_query)
 
-        plpy.info("|_udf_time_|{}|".format(time.time() - udf_time))
+        DEBUG.print_timings("|_udf_time_|{}|".format(time.time() - udf_time))
 
         delete_time = time.time()
-        plpy_execute_debug("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
-        plpy.info("|_delete_time_|{}|".format(time.time() - delete_time))
+        plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
+        DEBUG.print_timings("|_delete_time_|{}|".format(time.time() - delete_time))
 
         # Copy over any extra models that were just resting
         #  on the bench this hop.
@@ -787,15 +774,15 @@ class FitMultipleModel():
                 WHERE {dist_key_col} is NULL
         """.format(dist_key_col=dist_key_col, self=self)
 
-        plpy_execute_debug(copy_untrained_models_query)
-        plpy.info("|_copy_time_|{}|".format(time.time() - insert_time))
+        DEBUG.plpy.execute(copy_untrained_models_query)
+        DEBUG.print_timings("|_copy_time_|{}|".format(time.time() - insert_time))
 
         truncate_time = time.time()
         self.truncate_and_drop(self.model_input_tbl)
         self.truncate_and_drop(self.current_schedule_tbl)
-        plpy.info("|_truncate__input_time_|{}|".format(time.time() - truncate_time))
+        DEBUG.print_timings("|_truncate_input_time_|{}|".format(time.time() - truncate_time))
 
-        plpy.info("|_run_training_time_{}|{}|".format(hop, time.time()-start_time))
+        DEBUG.print_timings("|_run_training_time_{}|{}|".format(hop, time.time()-start_time))
 
     def truncate_and_drop(self, table):
         with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
