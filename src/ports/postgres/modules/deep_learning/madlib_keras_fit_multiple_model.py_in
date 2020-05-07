@@ -180,20 +180,23 @@ class FitMultipleModel():
         self.current_schedule_tbl = unique_string(desp='current_schedule')
 
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
+        self.max_dist_key = sorted(self.dist_keys)[-1]
         self.extra_dist_keys = []
+
         num_msts = len(self.msts)
         num_dist_keys = len(self.dist_keys)
-        if num_msts < num_dist_keys
+
+        if num_msts < num_dist_keys:
             self.msts_for_schedule = self.msts + [None] * \
                                      (num_dist_keys - num_msts)
         else:
             self.msts_for_schedule = self.msts
-            if num_msts > num_dist_keys
+            if num_msts > num_dist_keys:
                 for i in range(num_msts - num_dist_keys):
-                    self.extra_dist_keys.append(self.dist_keys[-1] + 1 + i)
+                    self.extra_dist_keys.append(self.max_dist_key + 1 + i)
+
         random.shuffle(self.msts_for_schedule)
-        for i in range(self.dist_keys, len(self.msts_for_schedule)):
-        self.extra_dist_keys = range(self.dist_keys[-1], 
+
         self.grand_schedule = self.generate_grand_schedule(self.msts_for_schedule)
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
@@ -508,11 +511,13 @@ class FitMultipleModel():
                 plpy.info("Initializing model output tbl with mst_key = {}, dist_key = {}".format(mst['mst_key'], dist_key))
                 output_table_insert_query = """
                                     INSERT INTO {self.model_output_tbl} (
-                                        {self.mst_key_col}, {self.model_weights_col},
-                                        {self.model_arch_col}, {dist_key_col})
-                                    VALUES ({mst_key}, $1, $2, {dist_key})
+                                        {self.mst_key_col},
+                                        {self.model_weights_col},
+                                        {self.model_arch_col},
+                                        {dist_key_col})
+                                    VALUES ({mst_key_val}, $1, $2, {dist_key})
                                        """.format(self=self,
-                                                  mst_key=mst[self.mst_key_col],
+                                                  mst_key_val=mst[self.mst_key_col],
                                                   dist_key_col=dist_key_col,
                                                   dist_key=dist_key)
                 output_table_insert_query_prepared = plpy.prepare(
@@ -644,7 +649,7 @@ class FitMultipleModel():
         # that was used for initializing GPU memory.
 
         res = plpy.execute("""
-            SELECT mst_key, {dist_key_col}, gp_segment_id AS seg_id
+            SELECT {self.mst_key_col}, {dist_key_col}, gp_segment_id AS seg_id
             FROM {self.model_output_tbl} ORDER BY gp_segment_id
         """.format(dist_key_col=dist_key_col, self=self))
 
@@ -656,33 +661,40 @@ class FitMultipleModel():
 
         self.hop_plan_tbl = unique_string('hop_plan')
         create_hop_tbl_query = """
-            CREATE TABLE {self.hop_plan_tbl} AS SELECT o.{dist_key_col} AS old_dist_key,
-                         sched.{dist_key_col} AS new_dist_key
+            CREATE TABLE {self.hop_plan_tbl} AS
+                SELECT
+                    o.{dist_key_col} AS old_dist_key,
+                    sched.{self.compile_params_col},
+                    sched.{self.fit_params_col},
+                    sched.{dist_key_col} AS new_dist_key
             FROM model_output o LEFT JOIN {self.current_schedule_tbl} sched
-                USING (mst_key)
+                USING ({self.mst_key_col})
             DISTRIBUTED BY (old_dist_key);
-        """.format(**locals())
+        """.format(dist_key_col=dist_key_col, self=self)
 
         plpy_execute_debug(create_hop_tbl_query)
         plpy.info("|_prehop_time_|{}|".format(time.time() - start_time))
 
         hop_query = """
-            CREATE TABLE model_input AS
-                SELECT o.mst_key,
-                       o.model_weights,
-                       o.model_arch,
+            CREATE TABLE {self.model_input_tbl} AS
+                SELECT o.{self.mst_key_col},
+                       o.{self.model_weights_col},
+                       o.{self.model_arch_col},
+                       h.{self.compile_params_col},
+                       h.{self.fit_params_col},
                        h.new_dist_key AS {dist_key_col}
-                FROM model_output o JOIN hop_plan h
-                    ON h.old_dist_key=o.__dist_key__
-                DISTRIBUTED BY (__dist_key__);
-        """.format(dist_key_col, self=self)
-        truncate_and_drop({hop_plan_tbl})
+                FROM {self.model_output_tbl} o JOIN {self.hop_plan_tbl} h
+                    ON h.old_dist_key=o.{dist_key_col}
+                DISTRIBUTED BY ({dist_key_col});
+        """.format(dist_key_col=dist_key_col, self=self)
 
         plpy_execute_debug(hop_query)
+        self.truncate_and_drop(self.hop_plan_tbl)
+
         plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
 
         res = plpy.execute("""
-            SELECT mst_key, {dist_key_col}, gp_segment_id AS seg_id
+            SELECT {self.mst_key_col}, {dist_key_col}, gp_segment_id AS seg_id
             FROM {self.model_input_tbl} ORDER BY gp_segment_id
         """.format(dist_key_col=dist_key_col, self=self))
 
@@ -723,10 +735,13 @@ class FitMultipleModel():
                 {self.mst_weights_tbl}.{self.object_map_col}::BYTEA
                 )::BYTEA AS {self.model_weights_col},
                 model_in.{self.model_arch_col},
+                model_in.{self.compile_params_col},
+                model_in.{self.fit_params_col},
                 src.{dist_key_col}
             FROM {self.source_table} src JOIN {self.model_input_tbl} model_in
                 USING ({dist_key_col}) 
             WHERE model_in.{self.mst_key_col} IS NOT NULL
+                AND model_in.{dist_key_col} <= {self.max_dist_key}
             DISTRIBUTED BY({dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
@@ -740,7 +755,7 @@ class FitMultipleModel():
         plpy.info("|_udf_time_|{}|".format(time.time() - udf_time))
 
         delete_time = time.time()
-        plpy_execute_debug("DELETE FROM {self.model_output_tbl} WHERE model_arch IS NULL".format(self=self))
+        plpy_execute_debug("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
         plpy.info("|_delete_time_|{}|".format(time.time() - delete_time))
 
         # Copy over any extra models that were just resting
