@@ -180,12 +180,20 @@ class FitMultipleModel():
         self.current_schedule_tbl = unique_string(desp='current_schedule')
 
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
-        if len(self.msts) < len(self.dist_keys):
+        self.extra_dist_keys = []
+        num_msts = len(self.msts)
+        num_dist_keys = len(self.dist_keys)
+        if num_msts < num_dist_keys
             self.msts_for_schedule = self.msts + [None] * \
-                                     (len(self.dist_keys) - len(self.msts))
+                                     (num_dist_keys - num_msts)
         else:
             self.msts_for_schedule = self.msts
+            if num_msts > num_dist_keys
+                for i in range(num_msts - num_dist_keys):
+                    self.extra_dist_keys.append(self.dist_keys[-1] + 1 + i)
         random.shuffle(self.msts_for_schedule)
+        for i in range(self.dist_keys, len(self.msts_for_schedule)):
+        self.extra_dist_keys = range(self.dist_keys[-1], 
         self.grand_schedule = self.generate_grand_schedule(self.msts_for_schedule)
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
@@ -494,8 +502,8 @@ class FitMultipleModel():
             if not mst['mst_key'] in self.warm_start_msts:
                 if index < len(self.dist_keys):
                     dist_key = self.dist_keys[index]
-                else:
-                    dist_key = 'NULL'  # This model won't be trained on first hop
+                else:  # For models that won't be trained on first hop
+                    dist_key = self.extra_dist_keys[index - num_dist_keys]
 
                 plpy.info("Initializing model output tbl with mst_key = {}, dist_key = {}".format(mst['mst_key'], dist_key))
                 output_table_insert_query = """
@@ -645,30 +653,31 @@ class FitMultipleModel():
                 row['mst_key'], row[dist_key_col], row['seg_id']))
 
         start_time = time.time()
-        use_gpus = self.use_gpus if self.use_gpus else False
 
-# TODO: replace hop query with these:
-#        CREATE TABLE hop_plan AS SELECT o.__dist_key__ AS old_dist_key, sched.__dist_key__ AS new_dist_key from model_output o join current_schedule sched USING (mst_key) DISTRIBUTED BY (old_dist_key);
+        self.hop_plan_tbl = unique_string('hop_plan')
+        create_hop_tbl_query = """
+            CREATE TABLE {self.hop_plan_tbl} AS SELECT o.{dist_key_col} AS old_dist_key,
+                         sched.{dist_key_col} AS new_dist_key
+            FROM model_output o LEFT JOIN {self.current_schedule_tbl} sched
+                USING (mst_key)
+            DISTRIBUTED BY (old_dist_key);
+        """.format(**locals())
 
-#        CREATE TABLE model_input as SELECT o.mst_key, o.model_weights, o.model_arch, h.__dist_key__ FROM model_output o join hop_plan h on h.old_dist_key=o.__dist_key__ DISTRIBUTED BY (__dist_key__);
-#        truncate_and_drop('hop_plan');
+        plpy_execute_debug(create_hop_tbl_query)
+        plpy.info("|_prehop_time_|{}|".format(time.time() - start_time))
 
-        hop_query = """set statement_mem='2000MB';
-            CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
-                SELECT sched.{dist_key_col},
-                       sched.{self.compile_params_col}::TEXT,
-                       sched.{self.fit_params_col}::TEXT,
-                       model_out.{self.mst_key_col},
-                       model_out.{self.model_weights_col}::BYTEA,
-                       model_out.{self.model_arch_col}::JSON
-                FROM
-                    {self.current_schedule_tbl} sched
-                    RIGHT JOIN
-                    {self.model_output_tbl} model_out
-                USING ({self.mst_key_col})
-                WHERE {self.model_weights_col} IS NOT NULL
-                DISTRIBUTED BY ({dist_key_col})
-        """.format(dist_key_col=dist_key_col, self=self)
+        hop_query = """
+            CREATE TABLE model_input AS
+                SELECT o.mst_key,
+                       o.model_weights,
+                       o.model_arch,
+                       h.new_dist_key AS {dist_key_col}
+                FROM model_output o JOIN hop_plan h
+                    ON h.old_dist_key=o.__dist_key__
+                DISTRIBUTED BY (__dist_key__);
+        """.format(dist_key_col, self=self)
+        truncate_and_drop({hop_plan_tbl})
+
         plpy_execute_debug(hop_query)
         plpy.info("|_hop_time_|{}|".format(time.time() - start_time))
 
@@ -686,6 +695,11 @@ class FitMultipleModel():
         plpy.info("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
 
         udf_time = time.time()
+
+#TODO: maybe this and all other repetitive queries should be saved
+#        as a prepared statement?  (Might be faster?)
+
+        use_gpus = self.use_gpus if self.use_gpus else False
 
         udf_query = """
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
