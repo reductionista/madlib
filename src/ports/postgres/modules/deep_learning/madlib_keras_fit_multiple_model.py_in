@@ -53,6 +53,7 @@ import utilities.debug as DEBUG
 DEBUG.timings_enabled = True
 DEBUG.mst_keys_enabled = True
 DEBUG.plpy_execute_enabled = True
+DEBUG.plpy_info_enabled = True
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
@@ -186,6 +187,9 @@ class FitMultipleModel():
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
         self.max_dist_key = sorted(self.dist_keys)[-1]
         self.extra_dist_keys = []
+
+        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
+        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.dist_keys))
 
         num_msts = len(self.msts)
         num_dist_keys = len(self.dist_keys)
@@ -662,7 +666,7 @@ class FitMultipleModel():
         plpy.execute(create_hop_tbl_query)
 
         DEBUG.print_timings("|_prehop_time_|{}|".format(time.time() - start_time))
-        DEBUG.print_mst_keys(self.model_output_tbl, 'after_hop')
+        DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
 
         hop_query = """
             CREATE TABLE {self.model_input_tbl} AS
@@ -682,7 +686,7 @@ class FitMultipleModel():
 
         DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
 
-        DEBUG.print_mst_keys(self.model_output_tbl, 'after_hop')
+        DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
         truncate_time = time.time()
         self.truncate_and_drop(self.model_output_tbl)

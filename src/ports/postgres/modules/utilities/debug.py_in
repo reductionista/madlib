@@ -20,58 +20,94 @@ def print_mst_keys(table, label, force=False):
         SELECT gp_segment_id AS seg_id,
                {mst_key_col},
                {dist_key_col}
-        FROM {table} ORDER BY seg_id
+        FROM {table} ORDER BY {dist_key_col}
     """.format(dist_key_col=dist_key_col,
                table=table,
                mst_key_col=mst_key_col))
 
-    plpy_orig.info("_MST_KEYS_{label}_HDR | mst_key | seg_id | dist_key | {table} ".format(**locals()))
+    plpy_orig.info("_MST_KEYS_{label}_HDR|mst_key|seg_id|dist_key|{table}".format(**locals()))
     for r in res:
         seg_id = r['seg_id']
         mst_key = r['mst_key']
         dist_key = r[dist_key_col]
-        plpy_orig.info("_MST_KEYS_{label}_DATA | {mst_key} | {seg_id} | {dist_key} ".format(**locals()))
+        plpy_orig.info("_MST_KEYS_{label}_DATA|{mst_key}|{seg_id}|{dist_key}".format(**locals()))
 
 plpy_execute_enabled = False
-def plpy_execute(sql, *args, **kwargs):
-    """ Replace plpy.execute(sql, ...) with
+def plpy_execute(*args, **kwargs):
+    """ debug.plpy.execute(sql, ..., force=False)
+
+        Replace plpy.execute(sql, ...) with
         debug.plpy.execute(sql, ...) to debug
         a query.  Shows the query itself, the
         EXPLAIN of it, and how long the query
         takes to execute.
     """
 
+    force = False
     if 'force' in kwargs:
         del kwargs['force']
-        force = True
+        force = force['force']
 
     plpy = plpy_orig # override global plpy,
                      # to avoid infinite recursion
 
     if not (plpy_execute_enabled or force):
-        return plpy.execute(sql, *args, **kwargs)
+        return plpy.execute(*args, **kwargs)
+
+    if len(args) > 0:
+        sql = args[0]
+    else:
+        raise TypeError('debug.plpy.execute() takes at least 1 parameter, 0 passed')
 
     plpy.info(sql)  # Print sql command
-
+    
     # Print EXPLAIN of sql command
-    res = plpy.execute("EXPLAIN " + sql, *args, **kwargs)
+    res = plpy.execute("EXPLAIN " + sql, *args[1:], **kwargs)
     for r in res:
         plpy.info(r['QUERY PLAN'])
 
     # Run actual sql command, with timing
     start = time.time()
-    plpy.execute(sql, *args)
+    plpy.execute(*args, **kwargs)
 
     # Print how long execution of query took
     plpy.info("Query took {0}s".format(time.time() - start))
 
+plpy_info_enabled = False
+def plpy_info(*args, **kwargs):
+    """ plpy_info(..., force=False)
+
+      plpy.info() if enabled, otherwise do nothing   
+    """
+
+    force = False
+    if 'force' in kwargs:
+        del kwargs['force']
+        force = kwargs['force']
+
+    if plpy_info_enabled or force:
+        plpy_orig.info(*args, **kwargs)
+
 plpy_debug_enabled = False
-def plpy_debug(force=False, **kwargs):
+def plpy_debug(*args, **kwargs):
+    """ debug.plpy.debug(..., force=False)
+
+        Behaves like plpy.debug() if disabled (printing only
+        if DEBUG level is set high enough), but becomes a
+        plpy.info() if enabled.
+    """
+
+    force = False
+    if 'force' in kwargs:
+        del kwargs['force']
+        force = kwargs['force']
+
     if plpy_debug_enabled or force:
-        plpy_orig.info(**kwargs)
+        plpy_orig.info(*args, **kwargs)
     else:
-        plpy_orig.debug(**kwargs)
+        plpy_orig.debug(*args, **kwargs)
 
 class plpy:
     execute = staticmethod(plpy_execute)
+    info = staticmethod(plpy_info)
     debug = staticmethod(plpy_debug)
