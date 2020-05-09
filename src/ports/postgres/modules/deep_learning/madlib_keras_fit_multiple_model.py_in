@@ -134,8 +134,6 @@ class FitMultipleModel():
             self.model_summary_table = add_postfix(
                 self.original_model_output_tbl, '_summary')
 
-        self.model_output_tbl = self.original_model_output_tbl
-
         """
         For warm start, we need to copy the model output table to a temp table
         because we call truncate on the model output table while training.
@@ -145,7 +143,9 @@ class FitMultipleModel():
         self.warm_start = bool(warm_start)
         self.warm_start_msts = []
         if self.warm_start:
-            self.model_output_tbl = unique_string('initial_model')
+            self.model_output_tbl = unique_string('model_output')
+        else:
+            self.model_output_tbl = self.original_model_output_tbl
 
         self.fit_validator_train = FitMultipleInputValidator(
             self.source_table, self.validation_table, self.original_model_output_tbl,
@@ -408,19 +408,23 @@ class FitMultipleModel():
         plpy.execute("""
             CREATE TABLE {self.model_output_tbl} (
             LIKE {self.original_model_output_tbl} INCLUDING indexes) DISTRIBUTED BY ({dist_key_col})
-            """.format(dist_key_col=dist_key_col, self=self))
+        """.format(dist_key_col=dist_key_col, self=self))
 
         plpy.execute("""INSERT INTO {self.model_output_tbl}
-            SELECT * FROM {self.original_model_output_tbl};
-            """.format(self=self))
+            SELECT * FROM {self.original_model_output_tbl}
+        """.format(self=self))
 
-        plpy.execute(""" DELETE FROM {self.model_output_tbl}
+        plpy.execute("""
+            DELETE FROM {self.model_output_tbl}
                 WHERE {self.mst_key_col} NOT IN (
-                    SELECT {self.mst_key_col} FROM {self.model_selection_table})
-                """.format(self=self))
-        self.warm_start_msts = plpy.execute(
-            """ SELECT array_agg({0}) AS a FROM {1}
-            """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
+                    SELECT {self.mst_key_col} FROM {self.model_selection_table}
+                )
+        """.format(self=self))
+
+        self.warm_start_msts = plpy.execute("""
+            SELECT array_agg({0}) AS a FROM {1}
+        """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
+
         plpy.execute("DROP TABLE {0}".format(self.model_info_table))
         self.initialize_model_output_and_info()
 

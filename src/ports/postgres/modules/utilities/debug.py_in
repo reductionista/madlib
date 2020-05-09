@@ -25,12 +25,12 @@ def print_mst_keys(table, label, force=False):
                table=table,
                mst_key_col=mst_key_col))
 
-    plpy_orig.info("_MST_KEYS_{label}_HDR|mst_key|seg_id|dist_key|{table}".format(**locals()))
+    plpy_orig.info("|_MST_KEYS_HDR_{label}|mst_key|seg_id|dist_key|table".format(**locals()))
     for r in res:
         seg_id = r['seg_id']
         mst_key = r['mst_key']
         dist_key = r[dist_key_col]
-        plpy_orig.info("_MST_KEYS_{label}_DATA|{mst_key}|{seg_id}|{dist_key}".format(**locals()))
+        plpy_orig.info("|_MST_KEYS_{label}_DATA|{mst_key}|{seg_id}|{dist_key}|{table}".format(**locals()))
 
 plpy_execute_enabled = False
 def plpy_execute(*args, **kwargs):
