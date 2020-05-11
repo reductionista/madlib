@@ -814,6 +814,8 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
     x_val = np_array_float32(independent_var, independent_var_shape)
     y_val = np_array_int16(dependent_var, dependent_var_shape)
 
+    plpy.info("device_name = {}".format(device_name))
+
     with K.tf.device(device_name):
         res = segment_model.evaluate(x_val, y_val)
 

@@ -121,12 +121,12 @@ class FitMultipleModel():
         self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
-        #if self.use_gpus:
+        if self.use_gpus:
         #    self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
         #        self.schema_madlib, self.segments_per_host, self.module_name)
-        #else:
-        #    self.accessible_gpus_for_seg = get_seg_number()*[0]
-        self.accessible_gpus_for_seg = 20 * [4]
+            self.accessible_gpus_for_seg = get_seg_number() * [4]
+        else:
+            self.accessible_gpus_for_seg = get_seg_number()*[0]
 
         self.original_model_output_tbl = model_output_table
         if self.original_model_output_tbl:
@@ -185,11 +185,11 @@ class FitMultipleModel():
         self.current_schedule_tbl = unique_string(desp='current_schedule')
 
         self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
+        plpy.info("init_dist_keys = {0}".format(self.dist_keys))
         self.max_dist_key = sorted(self.dist_keys)[-1]
+        plpy.info("sorted_dist_keys = {0}".format(sorted(self.dist_keys)))
+        plpy.info("max_dist_key = {0}".format(self.max_dist_key))
         self.extra_dist_keys = []
-
-        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
-        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.dist_keys))
 
         num_msts = len(self.msts)
         num_dist_keys = len(self.dist_keys)
@@ -202,6 +202,9 @@ class FitMultipleModel():
             if num_msts > num_dist_keys:
                 for i in range(num_msts - num_dist_keys):
                     self.extra_dist_keys.append(self.max_dist_key + 1 + i)
+
+        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
+        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.extra_dist_keys))
 
         random.shuffle(self.msts_for_schedule)
 
@@ -249,7 +252,9 @@ class FitMultipleModel():
         for iter in range(1, self.num_iterations+1):
             for hop in range(total_msts):
                 current_sched = [self.grand_schedule[dist_key][hop]
-                           for dist_key in self.dist_keys]
+                    for dist_key in self.dist_keys]
+                mst_keys = [ mst['mst_key'] for mst in current_sched ]
+                print "current_sched_msts_hop{0}: {1}".format(hop, mst_keys)
                 self.create_current_schedule_tbl(current_sched)
                 self.is_final_training_call = (iter == self.num_iterations and hop == total_msts-1)
                 if hop == 0:
@@ -362,6 +367,7 @@ class FitMultipleModel():
                                  DISTRIBUTED BY ({dist_key_col})
                          """.format(dist_key_col=dist_key_col, **locals())
         plpy.execute(create_sched_query)
+        
         for mst_row, dist_key in zip(current_sched, self.dist_keys):
             if mst_row:
                 model_id = mst_row[self.model_id_col]
@@ -392,6 +398,8 @@ class FitMultipleModel():
                                     ({self.mst_key_col} INTEGER,
                                      {self.model_weights_col} BYTEA,
                                      {self.model_arch_col} JSON,
+                                     {self.compile_params} TEXT,
+                                     {self.fit_params} TEXT,
                                      {dist_key_col} INTEGER)
                                      DISTRIBUTED BY ({dist_key_col})
                                     """.format(dist_key_col=dist_key_col, self=self)
@@ -514,8 +522,9 @@ class FitMultipleModel():
                                    loss_type=loss_type)
             plpy.execute(info_table_insert_query)
 
+            num_dist_keys = len(self.dist_keys)
             if not mst['mst_key'] in self.warm_start_msts:
-                if index < len(self.dist_keys):
+                if index < num_dist_keys:
                     dist_key = self.dist_keys[index]
                 else:  # For models that won't be trained on first hop
                     dist_key = self.extra_dist_keys[index - num_dist_keys]
@@ -661,8 +670,8 @@ class FitMultipleModel():
                     o.{dist_key_col} AS old_dist_key,
                     sched.{self.compile_params_col},
                     sched.{self.fit_params_col},
-                    sched.{dist_key_col} AS new_dist_key
-            FROM model_output o LEFT JOIN {self.current_schedule_tbl} sched
+                    COALESCE(sched.{dist_key_col}, o.{dist_key_col}) AS new_dist_key
+            FROM {self.model_output_tbl} o LEFT JOIN {self.current_schedule_tbl} sched
                 USING ({self.mst_key_col})
             DISTRIBUTED BY (old_dist_key);
         """.format(dist_key_col=dist_key_col, self=self)
@@ -677,8 +686,10 @@ class FitMultipleModel():
                 SELECT o.{self.mst_key_col},
                        o.{self.model_weights_col},
                        o.{self.model_arch_col},
-                       h.{self.compile_params_col},
-                       h.{self.fit_params_col},
+                       COALESCE(h.{self.compile_params_col},
+                                o.{self.compile_params_col}),
+                       COALESCE(h.{self.fit_params_col},
+                                o.{self.fit_params_col}),
                        h.new_dist_key AS {dist_key_col}
                 FROM {self.model_output_tbl} o JOIN {self.hop_plan_tbl} h
                     ON h.old_dist_key=o.{dist_key_col}
@@ -703,6 +714,8 @@ class FitMultipleModel():
 #        as a prepared statement?  (Might be faster?)
 
         use_gpus = self.use_gpus if self.use_gpus else False
+
+        DEBUG.plpy.info("use_gpus = {}".format(use_gpus))
 
         udf_query = """
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
@@ -776,7 +789,7 @@ class FitMultipleModel():
                        {self.model_arch_col}::JSON,
                        {dist_key_col}
                 FROM {self.model_input_tbl}
-                WHERE {dist_key_col} is NULL
+                WHERE {dist_key_col} > {self.max_dist_key}
         """.format(dist_key_col=dist_key_col, self=self)
 
         DEBUG.plpy.execute(copy_untrained_models_query)
