@@ -398,8 +398,8 @@ class FitMultipleModel():
                                     ({self.mst_key_col} INTEGER,
                                      {self.model_weights_col} BYTEA,
                                      {self.model_arch_col} JSON,
-                                     {self.compile_params} TEXT,
-                                     {self.fit_params} TEXT,
+                                     {self.compile_params_col} TEXT,
+                                     {self.fit_params_col} TEXT,
                                      {dist_key_col} INTEGER)
                                      DISTRIBUTED BY ({dist_key_col})
                                     """.format(dist_key_col=dist_key_col, self=self)
@@ -687,9 +687,11 @@ class FitMultipleModel():
                        o.{self.model_weights_col},
                        o.{self.model_arch_col},
                        COALESCE(h.{self.compile_params_col},
-                                o.{self.compile_params_col}),
+                                o.{self.compile_params_col})
+                           AS {self.compile_params_col},
                        COALESCE(h.{self.fit_params_col},
-                                o.{self.fit_params_col}),
+                                o.{self.fit_params_col})
+                           AS {self.fit_params_col},
                        h.new_dist_key AS {dist_key_col}
                 FROM {self.model_output_tbl} o JOIN {self.hop_plan_tbl} h
                     ON h.old_dist_key=o.{dist_key_col}
