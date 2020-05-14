@@ -122,9 +122,8 @@ class FitMultipleModel():
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
         if self.use_gpus:
-        #    self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
-        #        self.schema_madlib, self.segments_per_host, self.module_name)
-            self.accessible_gpus_for_seg = get_seg_number() * [4]
+            self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
+                self.schema_madlib, self.segments_per_host, self.module_name)
         else:
             self.accessible_gpus_for_seg = get_seg_number()*[0]
 
