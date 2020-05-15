@@ -691,35 +691,36 @@ class FitMultipleModel():
 
         start_time = time.time()
 
-        hop_query = """
-            CREATE TABLE {self.model_input_tbl} AS
-                SELECT o.{self.mst_key_col},
-                       o.{self.model_weights_col},
-                       o.{self.model_arch_col},
-                       o.{self.compile_params_col},
-                       o.{self.fit_params_col},
-                       s.{self.dist_key_col}
-                FROM {self.model_output_tbl} o JOIN {self.schedule_tbl} s
-                    ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
-                DISTRIBUTED BY ({self.dist_key_col});
-        """.format(self=self)
+        if hop > 0:
+            hop_query = """
+                CREATE TABLE {self.model_input_tbl} AS
+                    SELECT o.{self.mst_key_col},
+                           o.{self.model_weights_col},
+                           o.{self.model_arch_col},
+                           o.{self.compile_params_col},
+                           o.{self.fit_params_col},
+                           s.{self.dist_key_col}
+                    FROM {self.model_output_tbl} o JOIN {self.schedule_tbl} s
+                        ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
+                    DISTRIBUTED BY ({self.dist_key_col});
+            """.format(self=self)
 
-        DEBUG.plpy.execute(hop_query)
+            DEBUG.plpy.execute(hop_query)
 
-        DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
+            DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
 
-        DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
+            DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
-        truncate_time = time.time()
-        self.truncate_and_drop(self.model_output_tbl)
-        DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
-
-        res = plpy.execute("""
-            SELECT count(*)
-            FROM {self.model_input_tbl}
-        """.format(self=self))
-        DEBUG.plpy.info("rows in model_input table: {}".format(res[0]['count']))
-
+            truncate_time = time.time()
+            self.truncate_and_drop(self.model_output_tbl)
+            DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
+        else:
+            # Skip hop if it's the first in an iteration, just rename
+            plpy.execute("""
+                ALTER TABLE {self.model_output_tbl}
+                    RENAME TO {self.model_input_tbl}
+            """.format(self=self))
+                
         udf_time = time.time()
 
 #TODO: maybe this and all other repetitive queries should be saved
@@ -788,28 +789,17 @@ class FitMultipleModel():
         DEBUG.print_timings("|_run_training_time_{}|{}|".format(hop, time.time()-start_time))
 
     def truncate_and_drop(self, table):
-        with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
-            plpy.execute("""
-                TRUNCATE TABLE {table};
-                DROP TABLE {table}
-            """.format(table=table))
-
-    def truncate_and_drop_tables(self):
         """
-        Context: UPDATE statements in postgres are not in-place replacements but
-        the row to be updated is marked for deletion(note that the disk space for
-        this row doesn't get released until vaccuum is called) and a new row in
-        inserted.
-
-        This function will clear out the disk space used by the model_output_tbl
-        and also drop all the other intermediate tables.
-        If available, set the `` guc so that the truncate command can release the
-        disk space. The disk space will be released immediately and hence the
-        model_output table won't grow in size with each UPDATE statement.
+        This function truncates and drops one of the intermediate tables used
+        during an iteration (mostly, model_input_tbl and model_output_tbl).
+        If available, set the `dev_opt_unsafe_truncate_in_subtransaction` guc 
+        so that the truncate command can release the disk space. The disk space
+        will be released immediately and hence the model_output table won't grow
+        in size with each hop.
 
         Without this guc, the disk space won't be released and each
-        call to the UPDATE statement will keep adding to the disk space. The disk
-        space will only be released when the query is completed.
+        call to TRUNCATE or DROP will keep adding to the disk space. The
+        disk space will only be released when the query is completed.
 
         The guc can cause data loss if not used properly. Since truncate will
         actually clear the disk space immediately, there is no way to recover to
@@ -817,31 +807,10 @@ class FitMultipleModel():
         be set for intermediate tables and never for tables created outside the
         scope of the fit_multiple udf.
 
-        Workflow
-        1. Create temp table from model table (including the indexes)
-        2. truncate the model table to release disk space
-        3. rename temp table to model table so that it can be reused for the next
-        hop
-        :return:
         """
 
         with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
-            temp_model_table = unique_string('updated_model')
-            unlogged_table = self.unlogged_table if not self.is_final_training_call else ''
             plpy.execute("""
-            CREATE {unlogged_table} TABLE {temp_model_table} ( LIKE {self.model_output_tbl}
-            INCLUDING indexes);""".format(temp_model_table=temp_model_table,
-                                          unlogged_table=unlogged_table,
-                                          self=self))
-            plpy.execute("""
-            INSERT INTO {temp_model_table} SELECT * FROM {self.model_output_tbl};
-            TRUNCATE TABLE {self.model_output_tbl};
-            DROP TABLE {self.model_output_tbl};
-            """.format(temp_model_table=temp_model_table, self=self))
-            rename_table(self.schema_madlib, temp_model_table,
-                         self.model_output_tbl)
-            plpy.execute("""
-            TRUNCATE TABLE {self.model_input_tbl}, {self.schedule_tbl},
-            {self.weights_to_update_tbl};
-            DROP TABLE IF EXISTS {self.model_input_tbl}, {self.schedule_tbl},
-            {self.weights_to_update_tbl};""".format(self=self))
+                TRUNCATE TABLE {table};
+                DROP TABLE {table}
+            """.format(table=table))
