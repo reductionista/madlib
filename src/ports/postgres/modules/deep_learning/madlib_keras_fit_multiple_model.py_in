@@ -229,7 +229,6 @@ class FitMultipleModel():
         self.create_model_output_tbl()
         if self.warm_start:
             self.copy_warm_start_weights()
-
         self.initialize_model_output_and_info()
 
         self.fit_multiple_model()
@@ -454,8 +453,7 @@ class FitMultipleModel():
             SELECT array_agg({0}) AS a FROM {1}
         """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
 
-        plpy.execute("DROP TABLE {0}".format(self.model_info_table))
-        self.initialize_model_output_and_info()
+        plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_table))
 
     def initialize_model_output_and_info(self):
         info_table_create_query = """
