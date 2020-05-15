@@ -204,22 +204,19 @@ class FitMultipleModel():
 
         random.shuffle(self.msts_for_schedule)
 
-        # List of just the mst_keys, including NULL's
-        self.all_mst_keys = [ mst['mst_key'] if mst else 'NULL::INTEGER' \
-                                for mst in self.msts_for_schedule ]
+        # Comma-separated list of the mst_keys, including NULL's
+        #  This will be used to pass the mst keys to the db as
+        #  a sql ARRAY[]
+        self.all_mst_keys = '[' + ','.join(
+            [ str(mst['mst_key']) if mst else 'NULL'\
+                for mst in self.msts_for_schedule ]
+        ) + ']'
 
         # List of all dist_keys, including any extra dist keys beyond
         #  the # segments we'll be training on--these represent the
         #  segments models will rest on while not training, which
         #  may overlap with the ones that will have training on them.
         self.all_dist_keys = self.dist_keys + self.extra_dist_keys
-
-        # These must always match.  Whichever one was smaller we
-        #  should have already extended to match the larger size.
-        # This will determine the # of rows in all 3 dynamic
-        #  tables used during training: schedule_tbl, model_input_tbl,
-        #  and model_output_tbl
-        assert(len(self.all_dist_keys) == len(self.all_mst_keys))
 
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
