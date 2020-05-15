@@ -141,10 +141,8 @@ class FitMultipleModel():
         """
         self.warm_start = bool(warm_start)
         self.warm_start_msts = []
-        if self.warm_start:
-            self.model_output_tbl = unique_string('model_output')
-        else:
-            self.model_output_tbl = self.original_model_output_tbl
+
+        self.model_output_tbl = unique_string('model_output')
 
         self.fit_validator_train = FitMultipleInputValidator(
             self.source_table, self.validation_table, self.original_model_output_tbl,
@@ -232,6 +230,7 @@ class FitMultipleModel():
             self.create_model_output_tbl_warm_start()
         else:
             self.create_model_output_tbl()
+        self.initialize_model_output_and_info()
 
         self.weights_to_update_tbl = unique_string(desp='weights_to_update')
         self.fit_multiple_model()
@@ -239,8 +238,7 @@ class FitMultipleModel():
         # Update and cleanup metadata tables
         self.insert_info_table()
         self.create_model_summary_table()
-        if self.warm_start:
-            self.cleanup_for_warm_start()
+        self.rename_model_output_tbl()
         reset_cuda_env(original_cuda_env)
 
     def fit_multiple_model(self):
@@ -251,9 +249,9 @@ class FitMultipleModel():
             self.train_multiple_model()
             self.end_training_time = datetime.datetime.now()
 
-    def cleanup_for_warm_start(self):
+    def rename_model_output_tbl(self):
         """
-        1. drop original model table
+        1. drop original model table if exists
         2. rename temp to original
         :return:
         """
@@ -428,7 +426,6 @@ class FitMultipleModel():
                                      DISTRIBUTED BY ({self.dist_key_col})
                                     """.format(self=self)
         plpy.execute(output_table_create_query)
-        self.initialize_model_output_and_info()
 
     def create_model_output_tbl_warm_start(self):
         """
@@ -437,22 +434,19 @@ class FitMultipleModel():
         If the query gets aborted, we need to make sure that the user passed
         model output table can be recovered.
         """
-        plpy.execute("""
-            CREATE TABLE {self.model_output_tbl} (
-            LIKE {self.original_model_output_tbl}
-                INCLUDING indexes)
-            DISTRIBUTED BY ({self.dist_key_col})
-        """.format(self=self))
-
-        plpy.execute("""INSERT INTO {self.model_output_tbl}
-            SELECT * FROM {self.original_model_output_tbl}
-        """.format(self=self))
+        create_model_output_tbl(self)
 
         plpy.execute("""
-            DELETE FROM {self.model_output_tbl}
-                WHERE {self.mst_key_col} NOT IN (
-                    SELECT {self.mst_key_col} FROM {self.model_selection_table}
-                )
+            INSERT INTO {self.model_output_tbl}
+                SELECT o.*,
+                COALESCE(
+                        o.__dist_key__,
+                        m.__dist_key__,
+                        ROW_NUMBER() OVER()::INTEGER,
+                    ) AS {self.dist_key_col}
+                FROM {self.model_selection_table} m
+                    LEFT JOIN {self.original_model_output_tbl} o
+                        USING ({self.mst_key_col})
         """.format(self=self))
 
         self.warm_start_msts = plpy.execute("""
