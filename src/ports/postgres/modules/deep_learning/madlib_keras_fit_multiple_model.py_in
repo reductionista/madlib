@@ -205,7 +205,7 @@ class FitMultipleModel():
         random.shuffle(self.msts_for_schedule)
 
         # List of just the mst_keys, including NULL's
-        self.all_mst_keys = [ mst['mst_key'] if mst else 'NULL' \
+        self.all_mst_keys = [ mst['mst_key'] if mst else 'NULL::INTEGER' \
                                 for mst in self.msts_for_schedule ]
 
         # List of all dist_keys, including any extra dist keys beyond
@@ -226,13 +226,12 @@ class FitMultipleModel():
 
         self.create_schedule_tbl()
 
+        self.create_model_output_tbl()
         if self.warm_start:
-            self.create_model_output_tbl_warm_start()
-        else:
-            self.create_model_output_tbl()
+            self.copy_warm_start_weights()
+
         self.initialize_model_output_and_info()
 
-        self.weights_to_update_tbl = unique_string(desp='weights_to_update')
         self.fit_multiple_model()
 
         # Update and cleanup metadata tables
@@ -427,25 +426,27 @@ class FitMultipleModel():
                                     """.format(self=self)
         plpy.execute(output_table_create_query)
 
-    def create_model_output_tbl_warm_start(self):
+    def copy_warm_start_weights(self):
         """
-        For warm start, we need to copy the model output table to a temp table
-        because we call truncate on the model output table while training.
-        If the query gets aborted, we need to make sure that the user passed
-        model output table can be recovered.
+        For warm start, we need to copy any rows of the model output
+        table provided by the user whose mst keys appear in the
+        supplied model selection table.  We also copy over the 
+        compile & fit params from the model_selection_table, and
+        the dist_key's from the schedule table.
         """
-        create_model_output_tbl(self)
 
         plpy.execute("""
             INSERT INTO {self.model_output_tbl}
-                SELECT o.*,
-                COALESCE(
-                        o.__dist_key__,
-                        m.__dist_key__,
-                        ROW_NUMBER() OVER()::INTEGER,
-                    ) AS {self.dist_key_col}
-                FROM {self.model_selection_table} m
-                    LEFT JOIN {self.original_model_output_tbl} o
+                SELECT s.{self.mst_key_col},
+                    o.{self.model_weights_col},
+                    o.{self.model_arch_col},
+                    m.{self.compile_params_col},
+                    m.{self.fit_params_col},
+                    s.{self.dist_key_col}
+                FROM {self.schedule_tbl} s
+                    JOIN {self.model_selection_table} m
+                        USING ({self.mst_key_col})
+                    JOIN {self.original_model_output_tbl} o
                         USING ({self.mst_key_col})
         """.format(self=self))
 
