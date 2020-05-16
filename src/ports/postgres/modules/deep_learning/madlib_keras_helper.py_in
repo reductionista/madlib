@@ -245,7 +245,7 @@ def query_weights(model_output_table, model_weights_col, mst_key_col, mst_key):
                         FROM {model_output_table}
                         WHERE {mst_key_col} = {mst_key}
                         """.format(**locals())
-
+    res = plpy.execute(mlp_weights_query)
     return res[0][model_weights_col]
 
 def create_summary_view(module_name, model_table, mst_key):
