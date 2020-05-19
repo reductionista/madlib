@@ -129,7 +129,7 @@ class FitMultipleModel():
 
         self.original_model_output_tbl = model_output_table
         if self.original_model_output_tbl:
-            self.model_info_table = add_postfix(self.original_model_output_tbl, '_info')
+            self.model_info_tbl = add_postfix(self.original_model_output_tbl, '_info')
             self.model_summary_table = add_postfix(
                 self.original_model_output_tbl, '_summary')
 
@@ -140,7 +140,7 @@ class FitMultipleModel():
         model output table can be recovered.
         """
         self.warm_start = bool(warm_start)
-        self.warm_start_msts = []
+        self.initialized_msts = set()
 
         self.model_output_tbl = unique_string('model_output')
 
@@ -148,7 +148,7 @@ class FitMultipleModel():
             self.source_table, self.validation_table, self.original_model_output_tbl,
             self.model_selection_table, self.model_selection_summary_table,
             mb_dep_var_col, mb_indep_var_col, self.num_iterations,
-            self.model_info_table, self.mst_key_col, self.model_arch_table_col,
+            self.model_info_tbl, self.mst_key_col, self.model_arch_table_col,
             self.metrics_compute_frequency, self.warm_start, self.use_gpus,
             self.accessible_gpus_for_seg)
         if self.metrics_compute_frequency is None:
@@ -219,12 +219,9 @@ class FitMultipleModel():
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
 
-        self.create_schedule_tbl()
-
-        self.create_model_output_tbl()
-        if self.warm_start:
-            self.copy_warm_start_weights()
-        self.initialize_model_output_and_info()
+        self.init_schedule_tbl()
+        self.init_model_output_tbl()
+        self.init_model_info_tbl()
 
         self.fit_multiple_model()
 
@@ -330,10 +327,6 @@ class FitMultipleModel():
             self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
         DEBUG.start_timing('eval_model_total')
 
-    def create_schedule_tbl(self):
-        self.prev_dist_key_col = '__prev_dist_key__'
-
-<<<<<<< HEAD
     def populate_object_map(self):
         builtin_losses = dir(losses)
         builtin_metrics = update_builtin_metrics(dir(metrics))
@@ -368,11 +361,10 @@ class FitMultipleModel():
             for mst_idx in custom_fn_mst_idx:
                 self.msts[mst_idx][self.object_map_col] = custom_fn_object_map
 
-    def create_current_schedule_tbl(self, current_sched):
-=======
+    def init_schedule_tbl(self):
+        self.prev_dist_key_col = '__prev_dist_key__'
         mst_key_list = '[' + ','.join(self.all_mst_keys) + ']'
 
->>>>>>> 8d8f6875... Fix len(mst_keys) to use list, not str
         create_sched_query = """
             CREATE {self.unlogged_table} TABLE {self.schedule_tbl} AS
                 WITH map AS
@@ -418,21 +410,7 @@ class FitMultipleModel():
             RENAME TO {self.schedule_tbl}
         """.format(self=self))
 
-    def create_model_output_tbl(self):
-        output_table_create_query = """
-                                    CREATE TABLE {self.model_output_tbl}
-                                    ({self.mst_key_col} INTEGER,
-                                     {self.model_weights_col} BYTEA,
-                                     {self.model_arch_col} JSON,
-                                     {self.compile_params_col} TEXT,
-                                     {self.fit_params_col} TEXT,
-                                     {self.dist_key_col} INTEGER,
-                                     PRIMARY KEY ({self.mst_key_col}, {self.dist_key_col}))
-                                     DISTRIBUTED BY ({self.dist_key_col})
-                                    """.format(self=self)
-        plpy.execute(output_table_create_query)
-
-    def copy_warm_start_weights(self):
+    def load_warm_start_weights(self):
         """
         For warm start, we need to copy any rows of the model output
         table provided by the user whose mst keys appear in the
@@ -456,67 +434,67 @@ class FitMultipleModel():
                         USING ({self.mst_key_col})
         """.format(self=self))
 
-        self.warm_start_msts = plpy.execute("""
+        warm_start_msts = plpy.execute("""
             SELECT array_agg({0}) AS a FROM {1}
         """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
 
-        plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_table))
+        self.initialized_msts = set(warm_start_msts)
 
-    def initialize_model_output_and_info(self):
+        plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_tbl))
+
+    def load_model_arch_weights(self):
+        """
+            Copy weights and model_arch from
+            model_arch table.  weights will
+            be NULL if we are not doing transfer
+            learning.
+        """
+        load_weights_from_model_arch_query = """
+            INSERT INTO {self.model_output_tbl}
+                SELECT s.{self.mst_key_col},
+                    a.{self.model_weights_col},
+                    a.{self.model_arch_col},
+                    m.{self.compile_params_col},
+                    m.{self.fit_params_col},
+                    s.{self.dist_key_col}
+                FROM {self.schedule_tbl} s
+                    JOIN {self.model_selection_table} m
+                        USING ({self.mst_key_col})
+                    JOIN {self.model_arch_tbl} a
+                        USING ({self.model_id_col})
+        """.format(self=self)
+        DEBUG.plpy.execute(load_weights_from_model_arch_query)
+
+    def init_model_output_tbl(self):
         DEBUG.start_timing('init_model_output_and_info')
-        info_table_create_query = """
-                                  CREATE TABLE {self.model_info_table}
-                                  ({self.mst_key_col} INTEGER PRIMARY KEY,
-                                   {self.model_id_col} INTEGER,
-                                   {self.compile_params_col} TEXT,
-                                   {self.fit_params_col} TEXT,
-                                   model_type TEXT,
-                                   model_size DOUBLE PRECISION,
-                                   metrics_elapsed_time DOUBLE PRECISION[],
-                                   metrics_type TEXT[],
-                                   loss_type TEXT,
-                                   training_metrics_final DOUBLE PRECISION,
-                                   training_loss_final DOUBLE PRECISION,
-                                   training_metrics DOUBLE PRECISION[],
-                                   training_loss DOUBLE PRECISION[],
-                                   validation_metrics_final DOUBLE PRECISION,
-                                   validation_loss_final DOUBLE PRECISION,
-                                   validation_metrics DOUBLE PRECISION[],
-                                   validation_loss DOUBLE PRECISION[])
-                                       """.format(self=self)
 
-        plpy.execute(info_table_create_query)
+        output_table_create_query = """
+                                    CREATE TABLE {self.model_output_tbl}
+                                    ({self.mst_key_col} INTEGER,
+                                     {self.model_weights_col} BYTEA,
+                                     {self.model_arch_col} JSON,
+                                     {self.compile_params_col} TEXT,
+                                     {self.fit_params_col} TEXT,
+                                     {self.dist_key_col} INTEGER,
+                                     PRIMARY KEY ({self.mst_key_col}, {self.dist_key_col}))
+                                     DISTRIBUTED BY ({self.dist_key_col})
+                                    """.format(self=self)
+        plpy.execute(output_table_create_query)
+
+        if self.warm_start:
+            self.load_warm_start_weights()  # for warm start
+        else:
+            self.load_model_arch_weights()  # for xfer learning
+
+        res = plpy.execute("""
+            SELECT array_agg({0}) AS a FROM {1}
+        """.format(self.mst_key_col, self.model_output_tbl))
+        
+        initialized_msts = set(res[0]['a'])
 
         for index, mst in enumerate(self.msts_for_schedule):
             if mst is None:
                 continue
-
-            model_arch, model_weights = get_model_arch_weights(self.model_arch_table,
-                                                               mst[self.model_id_col])
-
-            # If warm start is enabled, weights from transfer learning cannot be
-            # used, even if a particular model doesn't have warm start weights.
-            if self.warm_start:
-                model_weights = None
-                mst_filter = """
-                            WHERE {mst_col}={mst_key}
-                        """.format(
-                    mst_col=self.mst_key_col,
-                    mst_key=mst['mst_key']
-                )
-
-            else:
-                mst_filter = ''
-
-            serialized_weights = get_initial_weights(self.model_output_tbl,
-                                                     model_arch,
-                                                     model_weights,
-                                                     mst['mst_key'] in self.warm_start_msts,
-                                                     self.use_gpus,
-                                                     self.accessible_gpus_for_seg,
-                                                     mst_filter
-                                                     )
-            model_size = sys.getsizeof(serialized_weights) / 1024.0
 
             metrics_list = get_metrics_from_compile_param(
                 mst[self.compile_params_col])
@@ -524,31 +502,8 @@ class FitMultipleModel():
             metrics_type = 'ARRAY{0}'.format(
                 metrics_list) if is_metrics_specified else 'NULL'
 
-            loss_type = get_loss_from_compile_param(mst[self.compile_params_col])
-            loss_type = loss_type if loss_type else 'NULL'
-
-            info_table_insert_query = """
-                            INSERT INTO {self.model_info_table} ({self.mst_key_col},
-                                        {self.model_id_col}, {self.compile_params_col},
-                                        {self.fit_params_col}, model_type, model_size,
-                                        metrics_type, loss_type)
-                                VALUES ({mst_key_val}, {model_id},
-                                        $madlib${compile_params}$madlib$,
-                                        $madlib${fit_params}$madlib$, '{model_type}',
-                                        {model_size}, {metrics_type}, '{loss_type}')
-                        """.format(self=self,
-                                   mst_key_val=mst[self.mst_key_col],
-                                   model_id=mst[self.model_id_col],
-                                   compile_params=mst[self.compile_params_col],
-                                   fit_params=mst[self.fit_params_col],
-                                   model_type='madlib_keras',
-                                   model_size=model_size,
-                                   metrics_type=metrics_type,
-                                   loss_type=loss_type)
-            plpy.execute(info_table_insert_query)
-
             num_dist_keys = len(self.dist_keys)
-            if not mst['mst_key'] in self.warm_start_msts:
+            if not mst['mst_key'] in initialized_msts:
                 if index < num_dist_keys:
                     dist_key = self.dist_keys[index]
                 else:  # For models that won't be trained on first hop
@@ -573,14 +528,96 @@ class FitMultipleModel():
                         $2,
                         $MADLIB${{{self.compile_params_col}}}$MADLIB$,
                         $MADLIB${{{self.fit_params_col}}}$MADLIB$,
-                        {dist_key}
+                        $3
                     )
-                """.format(dist_key=dist_key, self=self).format(**mst)
+                """.format(self=self).format(**mst)
 
-                output_table_insert_query_prepared = plpy.prepare(
-                    output_table_insert_query, ["bytea", "json"])
-                plpy.execute(output_table_insert_query_prepared, [
-                             serialized_weights, model_arch])
+                output_table_insert_query_prepared = plpy.prepare (
+                    output_table_insert_query,
+                    ["bytea", "json", "integer"]
+                )
+
+                plpy.execute(output_table_insert_query_prepared,
+                    [ serialized_weights, model_arch, dist_key ]
+                )
+
+    def init_model_info_tbl(self):
+        info_table_create_query = """
+            CREATE TABLE {self.model_info_tbl} (
+                {self.mst_key_col} INTEGER PRIMARY KEY,
+                {self.model_id_col} INTEGER,
+                {self.compile_params_col} TEXT,
+                {self.fit_params_col} TEXT,
+                model_type TEXT,
+                model_size DOUBLE PRECISION,
+                loss_type TEXT,
+                metrics_elapsed_time DOUBLE PRECISION[],
+                metrics_type TEXT[],
+                training_metrics_final DOUBLE PRECISION,
+                training_loss_final DOUBLE PRECISION,
+                training_metrics DOUBLE PRECISION[],
+                training_loss DOUBLE PRECISION[],
+                validation_metrics_final DOUBLE PRECISION,
+                validation_loss_final DOUBLE PRECISION,
+                validation_metrics DOUBLE PRECISION[],
+                validation_loss DOUBLE PRECISION[]
+           ) """.format(self=self)
+
+        plpy.execute(info_table_create_query)
+
+        # TODO:  not sure how to merge this... somehow we need to get the
+        #  compile params from the model selection table, probably need to
+        #  do an extra query for that, just returning that one column?
+        #  Unless we can parse the loss out from compile params with SQL...
+        loss_type = get_loss_from_compile_param(mst[self.compile_params_col])
+        loss_type = loss_type if loss_type else 'NULL'
+
+        info_table_insert_query = """
+            INSERT INTO {self.model_info_tbl} (
+                {self.mst_key_col},
+                {self.model_id_col},
+                {self.compile_params_col},
+                {self.fit_params_col},
+                model_type,
+                model_size,
+                metrics_type,
+                loss_type
+            )
+            SELECT
+                m.{self.mst_key_col},
+                m.{self.model_id_col},
+                m.{self.compile_params_col},
+                m.{self.fit_params_col},
+                '{model_type}',
+                LENGTH(o.{self.model_weights_col})/1024,
+                {metrics_type},
+                '{loss_type}'
+            FROM {self.model_selection_table} m JOIN {self.model_output_tbl} o
+                USING ({self.mst_key_col})
+        """.format(self=self,
+                   model_type='madlib_keras',
+                   metrics_type=metrics_type,
+                   loss_type=loss_type)
+
+        plpy.execute(info_table_insert_query)
+
+        for mst in self.msts_for_schedule:
+            if mst is None:
+                continue
+
+            metrics_list = get_metrics_from_compile_param(
+                mst[self.compile_params_col])
+            metrics_type = 'ARRAY{0}'.format(
+                metrics_list) if metrics_list else 'NULL'
+
+            plpy.execute("""
+                UPDATE {self.model_info_tbl}
+                    SET metrics_type = {metrics_type}
+                    WHERE {self.mst_key_col} = {{{self.mst_key_col}}}
+            """.format(self=self,
+                       metrics_type=metrics_type
+              ).format(**mst))
+
         DEBUG.print_timing('init_model_output_and_info')
 
     def create_model_summary_table(self):
@@ -616,7 +653,7 @@ class FitMultipleModel():
                     $MAD${self.source_table}$MAD$::TEXT AS source_table,
                     {self.validation_table}::TEXT AS validation_table,
                     $MAD${self.model_output_tbl}$MAD$::TEXT AS model,
-                    $MAD${self.model_info_table}$MAD$::TEXT AS model_info,
+                    $MAD${self.model_info_tbl}$MAD$::TEXT AS model_info,
                     $MAD${dependent_varname}$MAD$::TEXT AS dependent_varname,
                     $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
                     $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
@@ -659,7 +696,7 @@ class FitMultipleModel():
 
         if is_train:
             update_query = """
-                           UPDATE {self.model_info_table} SET
+                           UPDATE {self.model_info_tbl} SET
                            training_metrics_final = {metrics_final},
                            training_loss_final = {loss_final},
                            metrics_elapsed_time = {metrics_elapsed_time},
@@ -669,7 +706,7 @@ class FitMultipleModel():
                            """.format(**locals())
         else:
             update_query = """
-                           UPDATE {self.model_info_table} SET
+                           UPDATE {self.model_info_tbl} SET
                            validation_metrics_final = {metrics_final},
                            validation_loss_final = {loss_final},
                            metrics_elapsed_time = {metrics_elapsed_time},
