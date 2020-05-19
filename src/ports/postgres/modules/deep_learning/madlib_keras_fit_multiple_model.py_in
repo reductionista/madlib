@@ -207,10 +207,8 @@ class FitMultipleModel():
         # Comma-separated list of the mst_keys, including NULL's
         #  This will be used to pass the mst keys to the db as
         #  a sql ARRAY[]
-        self.all_mst_keys = '[' + ','.join(
-            [ str(mst['mst_key']) if mst else 'NULL'\
+        self.all_mst_keys = [ str(mst['mst_key']) if mst else 'NULL'\
                 for mst in self.msts_for_schedule ]
-        ) + ']'
 
         # List of all dist_keys, including any extra dist keys beyond
         #  the # segments we'll be training on--these represent the
@@ -258,12 +256,16 @@ class FitMultipleModel():
 
     def train_multiple_model(self):
         total_msts = len(self.all_mst_keys)
+        DEBUG.start_timing('train_multiple_model_extra')
+
         for iter in range(1, self.num_iterations+1):
             for hop in range(total_msts):
                 self.is_final_training_call = (iter == self.num_iterations and hop == total_msts-1)
                 if hop == 0:
                     start_iteration = time.time()
+                DEBUG.print_timing('train_multiple_model_extra')
                 self.run_training(hop)
+                DEBUG.start_timing('train_multiple_model_extra')
                 if hop == (total_msts - 1):
                     end_iteration = time.time()
                     self.info_str = "\tTime for training in iteration " \
@@ -284,6 +286,7 @@ class FitMultipleModel():
             plpy.info("\n"+self.info_str)
 
     def evaluate_model(self, epoch, table, is_train):
+        DEBUG.start_timing('eval_model_total')
         if is_train:
             mst_metric_eval_time = self.train_mst_metric_eval_time
             mst_loss = self.train_mst_loss
@@ -298,9 +301,14 @@ class FitMultipleModel():
             images_per_seg = self.images_per_seg_valid
             self.info_str += "\n\tValidation set after iteration {0}:".format(epoch)
         for mst in self.msts:
+            DEBUG.start_timing('eval_query_weights_time')
             weights = query_weights(self.model_output_tbl, self.model_weights_col,
                                     self.mst_key_col, mst[self.mst_key_col])
+            DEBUG.print_timing('eval_query_weights_time')
+            DEBUG.start_timing('eval_get_model_arch_weights_time')
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
+            DEBUG.print_timing('eval_get_model_arch_weights_time')
+            DEBUG.start_timing('eval_compute_loss_and_metrics')
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
                     mst[self.compile_params_col]),
@@ -314,15 +322,18 @@ class FitMultipleModel():
                 mst[self.object_map_col],
                 self.model_output_table,
                 mst[self.mst_key_col])
+            DEBUG.print_timing('eval_compute_loss_and_metrics')
             mst_metric_eval_time[mst[self.mst_key_col]] \
                 .append(time.time() - self.metrics_elapsed_start_time)
             mst_loss[mst[self.mst_key_col]].append(loss)
             mst_metric[mst[self.mst_key_col]].append(metric)
             self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
+        DEBUG.start_timing('eval_model_total')
 
     def create_schedule_tbl(self):
         self.prev_dist_key_col = '__prev_dist_key__'
 
+<<<<<<< HEAD
     def populate_object_map(self):
         builtin_losses = dir(losses)
         builtin_metrics = update_builtin_metrics(dir(metrics))
@@ -358,11 +369,15 @@ class FitMultipleModel():
                 self.msts[mst_idx][self.object_map_col] = custom_fn_object_map
 
     def create_current_schedule_tbl(self, current_sched):
+=======
+        mst_key_list = '[' + ','.join(self.all_mst_keys) + ']'
+
+>>>>>>> 8d8f6875... Fix len(mst_keys) to use list, not str
         create_sched_query = """
             CREATE {self.unlogged_table} TABLE {self.schedule_tbl} AS
                 WITH map AS
                     (SELECT
-                        unnest(ARRAY{self.all_mst_keys}) {self.mst_key_col},
+                        unnest(ARRAY{mst_key_list}) {self.mst_key_col},
                         unnest(ARRAY{self.all_dist_keys}) {self.dist_key_col}
                     )
                 SELECT
@@ -373,7 +388,7 @@ class FitMultipleModel():
                 FROM map LEFT JOIN {self.model_selection_table}
                     USING ({self.mst_key_col})
             DISTRIBUTED BY ({self.dist_key_col})
-        """.format(self=self)
+        """.format(self=self, mst_key_list=mst_key_list)
         DEBUG.plpy.execute(create_sched_query)
 
     def rotate_schedule_tbl(self):
@@ -403,12 +418,6 @@ class FitMultipleModel():
             RENAME TO {self.schedule_tbl}
         """.format(self=self))
 
-    def dont_rotate_schedule_tbl(self):
-        plpy.execute("""
-            UPDATE {self.schedule_tbl}
-                SET {self.prev_dist_key_col} = {self.dist_key_col}
-        """.format(self=self))
-
     def create_model_output_tbl(self):
         output_table_create_query = """
                                     CREATE TABLE {self.model_output_tbl}
@@ -417,7 +426,8 @@ class FitMultipleModel():
                                      {self.model_arch_col} JSON,
                                      {self.compile_params_col} TEXT,
                                      {self.fit_params_col} TEXT,
-                                     {self.dist_key_col} INTEGER)
+                                     {self.dist_key_col} INTEGER,
+                                     PRIMARY KEY ({self.mst_key_col}, {self.dist_key_col}))
                                      DISTRIBUTED BY ({self.dist_key_col})
                                     """.format(self=self)
         plpy.execute(output_table_create_query)
@@ -431,7 +441,7 @@ class FitMultipleModel():
         the dist_key's from the schedule table.
         """
 
-        plpy.execute("""
+        DEBUG.plpy.execute("""
             INSERT INTO {self.model_output_tbl}
                 SELECT s.{self.mst_key_col},
                     o.{self.model_weights_col},
@@ -453,6 +463,7 @@ class FitMultipleModel():
         plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_table))
 
     def initialize_model_output_and_info(self):
+        DEBUG.start_timing('init_model_output_and_info')
         info_table_create_query = """
                                   CREATE TABLE {self.model_info_table}
                                   ({self.mst_key_col} INTEGER PRIMARY KEY,
@@ -570,6 +581,7 @@ class FitMultipleModel():
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
                              serialized_weights, model_arch])
+        DEBUG.print_timing('init_model_output_and_info')
 
     def create_model_summary_table(self):
         if self.warm_start:
@@ -687,6 +699,7 @@ class FitMultipleModel():
         # that was used for initializing GPU memory.
 
         start_time = time.time()
+        DEBUG.start_timing("end_mst_hop")
 
         if hop > 0:
             hop_query = """
@@ -783,7 +796,8 @@ class FitMultipleModel():
         self.truncate_and_drop(self.model_input_tbl)
         DEBUG.print_timings("|_truncate_input_time_|{}|".format(time.time() - truncate_time))
 
-        DEBUG.print_timings("|_run_training_time_{}|{}|".format(hop, time.time()-start_time))
+        DEBUG.print_timings("end mst hop {}: {}".format(hop, time.time()-start_time))
+        DEBUG.print_timing("end_mst_hop")
 
     def truncate_and_drop(self, table):
         """
