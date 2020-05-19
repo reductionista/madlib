@@ -369,6 +369,9 @@ def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
     if is_platform_pg():
         _ = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[0], None)
     else:
+        # TODO: use_gpus is unused in this function apparently.  Also,
+        #  if we never use gpu's on gpdb, why do we use them on postgres?
+        #  Something doesn't seem right here
         _ = get_device_name_and_set_cuda_env(0, None)
 
     if warm_start:
@@ -530,13 +533,15 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     return_state = get_state_to_return(segment_model, is_last_row, is_multiple_model,
                                        agg_image_count, total_images)
 
-    trans_exit_time = time.time()
-    DEBUG.print_timings("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
     if is_last_row:
         if is_final_iteration or is_multiple_model:
             SD_STORE.clear_SD(SD)
             clear_keras_session(sess)
 
+    trans_exit_time = time.time()
+    DEBUG.print_timings("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
+
+    SD['trans_exit_time'] = trans_exit_time
     return return_state
 
 def fit_multiple_transition_caching(state, dependent_var, independent_var, dependent_var_shape,
