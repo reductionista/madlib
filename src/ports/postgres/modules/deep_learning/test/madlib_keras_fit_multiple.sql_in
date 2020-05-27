@@ -1,0 +1,39 @@
+CREATE OR REPLACE FUNCTION mst_key_tester(
+) RETURNS BOOLEAN AS
+$$
+import plpy
+plpy.info("Got here")
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+show search_path;
+SET search_path='madlib_installcheck_deep_learning';
+-- Mock fit_transition function, for testing
+--  madlib_keras_fit_multiple_model() python code
+CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
+    state                       BYTEA,
+    dependent_var               BYTEA,
+    independent_var             BYTEA,
+    dependent_var_shape         INTEGER[],
+    independent_var_shape       INTEGER[],
+    model_architecture          TEXT,
+    compile_params              TEXT,
+    fit_params                  TEXT,
+    dist_key                    INTEGER,
+    dist_key_mapping            INTEGER[],
+    current_seg_id              INTEGER,
+    segments_per_host           INTEGER,
+    images_per_seg              INTEGER[],
+    use_gpus                    BOOLEAN,
+    accessible_gpus_for_seg     INTEGER[],
+    prev_serialized_weights     BYTEA,
+    is_final_iteration          BOOLEAN
+) RETURNS BYTEA AS $$
+    return state
+$$ LANGUAGE plpythonu
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+
+SELECT mst_key_tester();
+
+-- Call fit_multiple_model with mock transition function
+-- select madlib.madlib_keras_fit_multiple_model();
