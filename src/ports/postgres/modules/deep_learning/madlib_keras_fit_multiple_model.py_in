@@ -27,7 +27,6 @@ from collections import defaultdict
 
 from keras.models import *
 from madlib_keras import compute_loss_and_metrics
-from madlib_keras import get_initial_weights
 from madlib_keras import get_model_arch_weights
 from madlib_keras import get_source_summary_table_dict
 from madlib_keras import should_compute_metrics_this_iter
@@ -162,9 +161,9 @@ class FitMultipleModel():
         if self.object_table is not None:
             self.populate_object_map()
 
-        original_cuda_env = None
+        self.original_cuda_env = None
         if CUDA_VISIBLE_DEVICES_KEY in os.environ:
-            original_cuda_env = os.environ[CUDA_VISIBLE_DEVICES_KEY]
+            self.original_cuda_env = os.environ[CUDA_VISIBLE_DEVICES_KEY]
 
         self.dist_key_mapping, self.images_per_seg_train = \
             get_image_count_per_seg_for_minibatched_data_from_db(
@@ -219,19 +218,17 @@ class FitMultipleModel():
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
 
+    def fit_multiple_model(self):
         self.init_schedule_tbl()
         self.init_model_output_tbl()
         self.init_model_info_tbl()
 
-        self.fit_multiple_model()
-
-        # Update and cleanup metadata tables
+         # Update and cleanup metadata tables
         self.insert_info_table()
         self.create_model_summary_table()
         self.rename_model_output_tbl()
-        reset_cuda_env(original_cuda_env)
+        reset_cuda_env(self.original_cuda_env)
 
-    def fit_multiple_model(self):
         # WARNING: set orca off to prevent unwanted redistribution
         with OptimizerControl(False):
             self.start_training_time = datetime.datetime.now()
@@ -508,6 +505,7 @@ class FitMultipleModel():
                     dist_key = self.dist_keys[index]
                 else:  # For models that won't be trained on first hop
                     dist_key = self.extra_dist_keys[index - num_dist_keys]
+                get_initial_weights(None, self.model_arch_tbl, None, False, self.accessible_gpus_for_seg)
 
                 DEBUG.plpy.info(
                     "Initializing model output tbl: mst_key={}, dist_key={}"\

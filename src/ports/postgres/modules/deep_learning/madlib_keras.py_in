@@ -372,8 +372,9 @@ def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
     if is_platform_pg():
         _ = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[0], None)
     else:
-        # TODO: shouldn't the 0 be use_gpus? If not, we should remove use_gpus
-        #  as a parameter to this function, and update the comment.
+        # TODO: use_gpus is unused in this function apparently.  Also,
+        #  if we never use gpu's on gpdb, why do we use them on postgres?
+        #  Something doesn't seem right here
         _ = get_device_name_and_set_cuda_env(0, None)
 
     if warm_start:
