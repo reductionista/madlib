@@ -80,7 +80,7 @@ Note that this function is disabled for Postgres.
 """
 
 @MinWarning("warning")
-class FitMultipleModel():
+class FitMultipleModel(object):
     def __init__(self, schema_madlib, source_table, model_output_table,
                  model_selection_table, num_iterations,
                  use_gpus=False, validation_table=None,
@@ -117,6 +117,7 @@ class FitMultipleModel():
             self.model_selection_summary_table = add_postfix(self.model_selection_table, '_summary')
 
         self.dist_key_col = DISTRIBUTION_KEY_COLNAME
+        self.prev_dist_key_col = '__prev_dist_key__'
         self.num_iterations = num_iterations
         self.metrics_compute_frequency = metrics_compute_frequency
         self.name = name
@@ -153,6 +154,8 @@ class FitMultipleModel():
             self.model_info_tbl = add_postfix(self.original_model_output_tbl, '_info')
             self.model_summary_table = add_postfix(
                 self.original_model_output_tbl, '_summary')
+	else:
+	    plpy.error("Must specify an output table.")
 
         """
         For warm start, we need to copy the model output table to a temp table
@@ -245,18 +248,18 @@ class FitMultipleModel():
         self.init_model_output_tbl()
         self.init_model_info_tbl()
 
-         # Update and cleanup metadata tables
-        self.insert_info_table()
-        self.create_model_summary_table()
-        self.rename_model_output_tbl()
-        reset_cuda_env(self.original_cuda_env)
-
         # WARNING: set orca off to prevent unwanted redistribution
         with OptimizerControl(False):
             self.start_training_time = datetime.datetime.now()
             self.metrics_elapsed_start_time = time.time()
             self.train_multiple_model()
             self.end_training_time = datetime.datetime.now()
+
+        # Update and cleanup metadata tables
+        self.insert_info_table()
+        self.create_model_summary_table()
+        self.rename_model_output_tbl()
+        reset_cuda_env(self.original_cuda_env)
 
     def rename_model_output_tbl(self):
         """
@@ -482,8 +485,8 @@ class FitMultipleModel():
                 FROM {self.schedule_tbl} s
                     JOIN {self.model_selection_table} m
                         USING ({self.mst_key_col})
-                    JOIN {self.model_arch_tbl} a
-                        USING ({self.model_id_col})
+                    JOIN {self.model_arch_table} a
+                        ON m.{self.model_id_col} = a.{self.model_id_col}
         """.format(self=self)
         DEBUG.plpy.execute(load_weights_from_model_arch_query)
 
@@ -514,9 +517,13 @@ class FitMultipleModel():
         
         initialized_msts = set(res[0]['a'])
 
+        DEBUG.plpy.info("Pre-initialized mst keys: {}".format(initialized_msts))
+
         for index, mst in enumerate(self.msts_for_schedule):
             if mst is None:
                 continue
+
+            DEBUG.plpy.info("Initializing index {} mst {}".format(index, mst['mst_key']))
 
             metrics_list = get_metrics_from_compile_param(
                 mst[self.compile_params_col])
@@ -530,7 +537,8 @@ class FitMultipleModel():
                     dist_key = self.dist_keys[index]
                 else:  # For models that won't be trained on first hop
                     dist_key = self.extra_dist_keys[index - num_dist_keys]
-                get_initial_weights(None, self.model_arch_tbl, None, False, self.accessible_gpus_for_seg)
+                DEBUG.plpy.info("Calling get_initial_weights")
+                get_initial_weights(None, self.model_arch_table, None, False, self.accessible_gpus_for_seg)
 
                 DEBUG.plpy.info(
                     "Initializing model output tbl: mst_key={}, dist_key={}"\
@@ -841,6 +849,15 @@ class FitMultipleModel():
 
         udf_time = time.time()
 
+        res = plpy.execute("""
+            SELECT count(*)
+            FROM {self.model_input_tbl}
+        """.format(self=self))
+        if res:
+            DEBUG.plpy.info("rows in model_input table: {}".format(res[0]['count']))
+        else:
+            plpy.error("No rows in output of UDA!")
+
 #TODO: maybe this and all other repetitive queries should be saved
 #        as a prepared statement?  (Might be faster?)
 
@@ -880,8 +897,7 @@ class FitMultipleModel():
                 src.{dist_key_col}
             FROM {self.model_input_tbl} model_in
                 LEFT JOIN {self.source_table} src
-                --USING ({self.dist_key_col}) 
-                ON model_in.{self.dist_key_col} = src.{self.dist_key_col}
+                USING ({self.dist_key_col}) 
             {where_caluse}
             DISTRIBUTED BY({self.dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
@@ -898,14 +914,19 @@ class FitMultipleModel():
                        where=where,
                        self=self
                        )
-        plpy.execute(udf_query)
+        plpy.info("Got here")
+        plpy.info("UDF query: {}".format(udf_query))
         DEBUG.print_timings("|_udf_time_|{}|".format(time.time() - udf_time))
+        DEBUG.plpy.execute(udf_query)
 
         res = plpy.execute("""
             SELECT count(*)
             FROM {self.model_output_tbl}
         """.format(self=self))
-        DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
+        if res:
+            DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
+        else:
+            plpy.error("No rows in output of UDA!")
 
         delete_time = time.time()
         plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
