@@ -1,16 +1,126 @@
-CREATE OR REPLACE FUNCTION mst_key_tester(
-) RETURNS BOOLEAN AS
+m4_include(`SQLCommon.m4')
+
+\i m4_regexp(MODULE_PATHNAME,
+             `\(.*\)libmadlib\.so',
+            `\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in'
+)
+
+CREATE OR REPLACE FUNCTION init_fit_mult(
+    source_table            VARCHAR,
+    model_output_table      VARCHAR,
+    model_selection_table   VARCHAR,
+    num_iterations          INTEGER
+) RETURNS VOID AS
 $$
-import plpy
-plpy.info("Got here")
+    import sys
+    from mock import Mock, patch
+
+    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
+    schema_madlib = 'madlib_installcheck_deep_learning'
+
+    @patch('deep_learning.madlib_keras_fit_multiple_model.get_image_count_per_seg_for_minibatched_data_from_db',
+        return_value=([0,  1,  2],  [10,  10,  10]))
+    @patch('deep_learning.madlib_keras_validator.FitCommonValidator._validate_common_args')
+    def initialize_fit_mult(c1, c2):
+        return madlib_keras_fit_multiple_model.FitMultipleModel(
+            schema_madlib,
+            source_table,
+            model_output_table,
+            model_selection_table,
+            num_iterations
+        )
+
+    fit_mult = initialize_fit_mult()
+    fit_mult.init_model_output_tbl()
+    GD['fit_mult'] = fit_mult
+    
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-show search_path;
-SET search_path='madlib_installcheck_deep_learning';
+CREATE OR REPLACE FUNCTION test_run_training()
+RETURNS TEXT AS
+$$
+    fit_mult = GD['fit_mult']
+
+    # patch plpy_execute here?
+
+    if fit_mult.run_training(0):
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.run_training(0) returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE TABLE dummy_source AS SELECT
+    0 as id,
+    NULL::REAL[] as dependent_var,
+    NULL::TEXT as independent_var,
+    0 as __dist_key__;
+
+INSERT INTO dummy_source VALUES(1, NULL, NULL,  1);
+INSERT INTO dummy_source VALUES(2, NULL, NULL,  2);
+INSERT INTO dummy_source VALUES(3, NULL, NULL,  3);
+
+CREATE TABLE dummy_source_summary (
+    source_table TEXT,
+    output_table TEXT,
+    dependent_varname TEXT,
+    independent_varname TEXT,
+    dependent_vartype       TEXT,
+    class_values            TEXT[],
+    buffer_size             INTEGER,
+    normalizing_const       REAL,
+    num_classes             TEXT,
+    distribution_rules      TEXT,
+    __internal_gpu_config__ TEXT
+);
+INSERT INTO dummy_source_summary VALUES('dummy_source', 'model_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
+
+CREATE OR REPLACE FUNCTION test_init_schedule(
+    schedule_table VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    fit_mult = GD['fit_mult']
+    fit_mult.schedule_tbl = schedule_table
+
+    if fit_mult.init_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.init_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION test_rotate_schedule(
+    schedule_table          VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    fit_mult = GD['fit_mult']
+
+    if fit_mult.schedule_tbl != schedule_table:
+        fit_mult.init_schedule_tbl()
+
+    if fit_mult.rotate_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.rotate_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Mock version() function to convince the InputValidator this is the real madlib schema
+CREATE FUNCTION madlib_installcheck_deep_learning.version() RETURNS VARCHAR AS
+$$
+    SELECT MADLIB_SCHEMA.version();
+$$ LANGUAGE sql IMMUTABLE;
+
 -- Mock fit_transition function, for testing
 --  madlib_keras_fit_multiple_model() python code
-CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
+CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     state                       BYTEA,
     dependent_var               BYTEA,
     independent_var             BYTEA,
@@ -28,12 +138,43 @@ CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     accessible_gpus_for_seg     INTEGER[],
     prev_serialized_weights     BYTEA,
     is_final_iteration          BOOLEAN
-) RETURNS BYTEA AS $$
-    return state
-$$ LANGUAGE plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+) RETURNS BYTEA AS
+$$
+    SELECT $1; -- Just return whatever was passed in
+$$ LANGUAGE SQL STABLE;
 
-SELECT mst_key_tester();
+-- Create mst table (maybe this should be moved to common setup file?
+DROP TABLE IF EXISTS iris_mst_table, iris_mst_table_summary;
+SELECT load_model_selection_table(
+    'iris_model_arch',
+    'iris_mst_table',
+    ARRAY[1],
+    ARRAY[
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.001)',metrics=['accuracy']$$
+    ],
+    ARRAY[
+        $$batch_size=5,epochs=1$$,
+        $$batch_size=10,epochs=1$$
+    ]
+);
 
--- Call fit_multiple_model with mock transition function
--- select madlib.madlib_keras_fit_multiple_model();
+-- Create FitMultiple object for running test functions
+SELECT init_fit_mult('dummy_source', 'model_out', 'iris_mst_table', 1);
+
+-- Test init_schedule_tbl()
+DROP TABLE IF EXISTS current_schedule;
+SELECT test_init_schedule('current_schedule');
+SELECT * FROM current_schedule ORDER BY __dist_key__;
+-- Add some assert's here
+
+-- Test rotate_schedule()
+SELECT test_rotate_schedule('current_schedule');
+SELECT * FROM current_schedule ORDER BY __dist_key__;
+-- Add some assert's here
+
+-- Test an actual hop
+SELECT test_run_training();
+
+
