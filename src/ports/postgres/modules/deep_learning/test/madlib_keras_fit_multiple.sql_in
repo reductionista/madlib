@@ -1,13 +1,36 @@
-CREATE OR REPLACE FUNCTION mst_key_tester(
+m4_include(`SQLCommon.m4')
+
+CREATE OR REPLACE FUNCTION test_fit_multiple_model(
+    test_function           VARCHAR,
+    source_table            VARCHAR,
+    model_output_table      VARCHAR,
+    model_selection_table   VARCHAR,
+    num_iterations          INTEGER,
+    initial_schedule        VARCHAR
 ) RETURNS BOOLEAN AS
 $$
-import plpy
-plpy.info("Got here")
+    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
+
+    schema_madlib = 'madlib_installcheck_deep_learning'
+    use_gpus = False
+    fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
+    fit_mult.DEBUG.mst_keys_enabled = True
+    fit_mult.__getattribute__(test_function)()
+
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-show search_path;
-SET search_path='madlib_installcheck_deep_learning';
+CREATE OR REPLACE FUNCTION test_rotate_schedule(
+    initial_schedule        VARCHAR,
+    model_selection_table   VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    SELECT test_fit_multiple_model('rotate_schedule',
+        'dummy_source', 'dummy_output', $2, 1, $1
+    );
+$$ LANGUAGE SQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
 -- Mock fit_transition function, for testing
 --  madlib_keras_fit_multiple_model() python code
 CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
@@ -28,12 +51,32 @@ CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     accessible_gpus_for_seg     INTEGER[],
     prev_serialized_weights     BYTEA,
     is_final_iteration          BOOLEAN
-) RETURNS BYTEA AS $$
-    return state
-$$ LANGUAGE plpythonu
-m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
+) RETURNS BYTEA AS
+$$
+    SELECT $1; -- Just return whatever was passed in
+$$ LANGUAGE SQL STABLE;
 
-SELECT mst_key_tester();
+-- Test create_schedule()
 
--- Call fit_multiple_model with mock transition function
--- select madlib.madlib_keras_fit_multiple_model();
+-- Test rotate_schedule()
+DROP TABLE IF EXISTS current_schedule;
+CREATE TABLE current_schedule (
+    model_id INTEGER,
+    compile_params VARCHAR,
+    fit_params VARCHAR,
+    __dist_key__ INTEGER,
+    mst_key INTEGER
+) DISTRIBUTED BY (__dist_key__);
+
+CREATE TABLE mst_table AS (
+    model_id INTEGER
+    mst_key INTEGER,
+    compile_params VARCHAR,
+    fit_params VARCHAR
+);
+
+SELECT test_rotate_schedule('current_schedule', 'mst_table');
+
+SELECT test_fit_multiple_model('run_training', 'dummy_src');
+-- SELECT test_fit_multiple_model('fit_multiple_model', 'dummy_src')
+
