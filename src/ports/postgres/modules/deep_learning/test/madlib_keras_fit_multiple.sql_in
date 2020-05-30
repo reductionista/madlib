@@ -1,5 +1,10 @@
 m4_include(`SQLCommon.m4')
 
+\i m4_regexp(MODULE_PATHNAME,
+             `\(.*\)libmadlib\.so',
+            `\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in'
+)
+
 CREATE OR REPLACE FUNCTION test_fit_multiple_model(
     test_function           VARCHAR,
     source_table            VARCHAR,
@@ -12,15 +17,51 @@ $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
 
     schema_madlib = 'madlib_installcheck_deep_learning'
-    use_gpus = False
+
+    fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(
+        schema_madlib,
+        source_table,
+        model_output_table,
+        model_selection_table,
+        num_iterations
+    )
+
+    # Initialize FitMultipleModel
     fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
+
+    if initial_schedule:
+        fit_mult.schedule_tbl = initial_schedule
     fit_mult.DEBUG.mst_keys_enabled = True
+
+    # Call test function
     fit_mult.__getattribute__(test_function)()
 
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-CREATE OR REPLACE FUNCTION test_rotate_schedule(
+CREATE OR REPLACE FUNCTION test_fit_multiple_model(
+    test_function           VARCHAR,
+    source_table            VARCHAR,
+    model_output_table      VARCHAR,
+    model_selection_table   VARCHAR,
+    num_iterations          INTEGER
+) RETURNS BOOLEAN AS
+$$
+    SELECT test_fit_multiple_model($1, $2, $3, $4, $5, NULL);
+$$ LANGUAGE SQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION test_init_schedule_tbl(
+    model_selection_table   VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    SELECT test_fit_multiple_model('create_schedule',
+        'dummy_source', 'dummy_output', $1, 1, 'dummy_sched'
+    );
+$$ LANGUAGE SQL VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION test_rotate_schedule_tbl(
     initial_schedule        VARCHAR,
     model_selection_table   VARCHAR
 ) RETURNS BOOLEAN AS
@@ -31,9 +72,15 @@ $$
 $$ LANGUAGE SQL VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
+-- Mock version() function to convince the InputValidator this is the real madlib schema
+CREATE FUNCTION madlib_installcheck_deep_learning.version() RETURNS VARCHAR AS
+$$
+    SELECT MADLIB_SCHEMA.version();
+$$ LANGUAGE sql IMMUTABLE;
+
 -- Mock fit_transition function, for testing
 --  madlib_keras_fit_multiple_model() python code
-CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition(
+CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     state                       BYTEA,
     dependent_var               BYTEA,
     independent_var             BYTEA,
@@ -56,27 +103,29 @@ $$
     SELECT $1; -- Just return whatever was passed in
 $$ LANGUAGE SQL STABLE;
 
--- Test create_schedule()
-
--- Test rotate_schedule()
-DROP TABLE IF EXISTS current_schedule;
-CREATE TABLE current_schedule (
-    model_id INTEGER,
-    compile_params VARCHAR,
-    fit_params VARCHAR,
-    __dist_key__ INTEGER,
-    mst_key INTEGER
-) DISTRIBUTED BY (__dist_key__);
-
-CREATE TABLE mst_table AS (
-    model_id INTEGER
-    mst_key INTEGER,
-    compile_params VARCHAR,
-    fit_params VARCHAR
+-- Create mst table (maybe this should be moved to common setup file?
+DROP TABLE IF EXISTS mst_table, mst_table_summary;
+SELECT load_model_selection_table(
+    'iris_model_arch',
+    'iris_mst_table',
+    ARRAY[1],
+    ARRAY[
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.001)',metrics=['accuracy']$$
+    ],
+    ARRAY[
+        $$batch_size=5,epochs=1$$,
+        $$batch_size=10,epochs=1$$
+    ]
 );
 
+-- Test init_schedule_tbl()
+SELECT test_init_schedule_tbl('iris_mst_table');
+
+DROP TABLE IF EXISTS schedule_table;
+
+-- Test rotate_schedule()
 SELECT test_rotate_schedule('current_schedule', 'mst_table');
 
-SELECT test_fit_multiple_model('run_training', 'dummy_src');
--- SELECT test_fit_multiple_model('fit_multiple_model', 'dummy_src')
-
+SELECT test_fit_multiple_model('run_training', 'iris_data_packed', 'model_output', 'iris_mst_table', 5);
