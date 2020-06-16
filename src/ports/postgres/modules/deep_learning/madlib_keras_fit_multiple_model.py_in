@@ -820,7 +820,6 @@ class FitMultipleModel():
             FROM {self.model_input_tbl} model_in
                 LEFT JOIN {self.source_table} src
                 USING ({self.dist_key_col}) 
---                ON model_in.{self.dist_key_col} = src.{self.dist_key_col}
             WHERE model_in.{self.mst_key_col} IS NOT NULL
             DISTRIBUTED BY({self.dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
