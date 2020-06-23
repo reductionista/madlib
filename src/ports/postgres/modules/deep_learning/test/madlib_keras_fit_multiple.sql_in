@@ -14,10 +14,18 @@ CREATE OR REPLACE FUNCTION test_fit_multiple_model(
     initial_schedule        VARCHAR
 ) RETURNS BOOLEAN AS
 $$
+    import sys
+    plpy.info(sys.path("Before: {}".format(sys.path)))
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
+    plpy.info("After: {}".format(sys.path))
 
     schema_madlib = 'madlib_installcheck_deep_learning'
 
+    from madlib_keras_validator import FitMultipleInputValidator
+
+    FitMultipleInputValidator.validate_input_shape = None
+
+    # Initialize FitMultipleModel
     fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(
         schema_madlib,
         source_table,
@@ -26,8 +34,7 @@ $$
         num_iterations
     )
 
-    # Initialize FitMultipleModel
-    fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
+#   fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
 
     if initial_schedule:
         fit_mult.schedule_tbl = initial_schedule
@@ -50,6 +57,27 @@ $$
     SELECT test_fit_multiple_model($1, $2, $3, $4, $5, NULL);
 $$ LANGUAGE SQL VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE TABLE dummy_source AS SELECT
+    0 as id,
+    NULL::REAL[] as dependent_var,
+    NULL::TEXT as independent_var,
+    0 as __dist_key__;
+
+CREATE TABLE dummy_source_summary (
+    source_table TEXT,
+    output_table TEXT,
+    dependent_varname TEXT,
+    independent_varname TEXT,
+    dependent_vartype       TEXT,
+    class_values            TEXT[],
+    buffer_size             INTEGER,
+    normalizing_const       REAL,
+    num_classes             TEXT,
+    distribution_rules      TEXT,
+    __internal_gpu_config__ TEXT
+);
+INSERT INTO dummy_source_summary VALUES('dummy_source', 'dummy_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
 
 CREATE OR REPLACE FUNCTION test_init_schedule_tbl(
     model_selection_table   VARCHAR
