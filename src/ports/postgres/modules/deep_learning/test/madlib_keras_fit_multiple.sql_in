@@ -15,26 +15,23 @@ CREATE OR REPLACE FUNCTION test_fit_multiple_model(
 ) RETURNS BOOLEAN AS
 $$
     import sys
-    plpy.info(sys.path("Before: {}".format(sys.path)))
-    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
-    plpy.info("After: {}".format(sys.path))
+    from mock import Mock, patch
 
+    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
     schema_madlib = 'madlib_installcheck_deep_learning'
 
-    from madlib_keras_validator import FitMultipleInputValidator
+    @patch('deep_learning.madlib_keras_validator.InputValidator.validate_input_shape')
+    @patch('deep_learning.madlib_keras_validator.FitCommonValidator._validate_input_table')
+    def initialize_fit_mult(mock_class1, mock_class2):
+        return madlib_keras_fit_multiple_model.FitMultipleModel(
+            schema_madlib,
+            source_table,
+            model_output_table,
+            model_selection_table,
+            num_iterations
+        )
 
-    FitMultipleInputValidator.validate_input_shape = None
-
-    # Initialize FitMultipleModel
-    fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(
-        schema_madlib,
-        source_table,
-        model_output_table,
-        model_selection_table,
-        num_iterations
-    )
-
-#   fit_mult = madlib_keras_fit_multiple_model.FitMultipleModel(**globals())
+    fit_mult = initialize_fit_mult()
 
     if initial_schedule:
         fit_mult.schedule_tbl = initial_schedule
