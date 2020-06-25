@@ -80,9 +80,10 @@ def set_keras_session(device_name, gpu_count, segments_per_host):
 def get_keras_session(device_name, gpu_count, segments_per_host):
     config = K.tf.ConfigProto()
     if gpu_count > 0:
-        memory_fraction = get_gpu_memory_fraction(gpu_count, segments_per_host)
-        config.gpu_options.allow_growth = False
-        config.gpu_options.per_process_gpu_memory_fraction = memory_fraction
+        #memory_fraction = get_gpu_memory_fraction(gpu_count, segments_per_host)
+        #config.gpu_options.allow_growth = False
+        config.gpu_options.allow_growth = True
+        #config.gpu_options.per_process_gpu_memory_fraction = 0.3
     session = tf.Session(config=config)
     return session
 
@@ -311,6 +312,7 @@ def compile_model(model, compile_params):
     optimizers = get_optimizers()
     (opt_name,final_args,compile_dict) = parse_and_validate_compile_params(compile_params)
     compile_dict['optimizer'] = optimizers[opt_name](**final_args) if final_args else opt_name
+    #compile_dict['options'] = tf.RunOptions(report_tensor_allocations_upon_oom = True)
     model.compile(**compile_dict)
 
 def validate_compile_param_types(compile_dict):
