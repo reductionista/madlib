@@ -20,9 +20,12 @@ $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
     schema_madlib = 'madlib_installcheck_deep_learning'
 
-    @patch('deep_learning.madlib_keras_validator.InputValidator.validate_input_shape')
-    @patch('deep_learning.madlib_keras_validator.FitCommonValidator._validate_input_table')
-    def initialize_fit_mult(mock_class1, mock_class2):
+    def mock_get_image_count_per_seg_for_non_minibatched_data_from_db():
+        return ('gp_segment_id', [1,  2,  3],  [10,  10,  10])
+
+    @patch('deep_learning.madlib_keras_helper.get_image_count_per_seg_for_non_minibatched_data_from_db', get_image_count_per_seg_for_non_minibatched_data_from_db)
+    @patch('deep_learning.madlib_keras_validator.FitCommonValidator._validate_common_args')
+    def initialize_fit_mult(c):
         return madlib_keras_fit_multiple_model.FitMultipleModel(
             schema_madlib,
             source_table,
