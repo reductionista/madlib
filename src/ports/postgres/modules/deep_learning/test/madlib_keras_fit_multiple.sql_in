@@ -11,7 +11,7 @@ CREATE OR REPLACE FUNCTION test_fit_multiple_model(
     model_output_table      VARCHAR,
     model_selection_table   VARCHAR,
     num_iterations          INTEGER,
-    initial_schedule        VARCHAR
+    schedule_table          VARCHAR
 ) RETURNS BOOLEAN AS
 $$
     import sys
@@ -20,12 +20,10 @@ $$
     PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
     schema_madlib = 'madlib_installcheck_deep_learning'
 
-    def mock_get_image_count_per_seg_for_non_minibatched_data_from_db():
-        return ('gp_segment_id', [1,  2,  3],  [10,  10,  10])
-
-    @patch('deep_learning.madlib_keras_helper.get_image_count_per_seg_for_non_minibatched_data_from_db', get_image_count_per_seg_for_non_minibatched_data_from_db)
+    @patch('deep_learning.madlib_keras_fit_multiple_model.get_image_count_per_seg_for_minibatched_data_from_db',
+        return_value=([0,  1,  2],  [10,  10,  10]))
     @patch('deep_learning.madlib_keras_validator.FitCommonValidator._validate_common_args')
-    def initialize_fit_mult(c):
+    def initialize_fit_mult(c1, c2):
         return madlib_keras_fit_multiple_model.FitMultipleModel(
             schema_madlib,
             source_table,
@@ -36,9 +34,8 @@ $$
 
     fit_mult = initialize_fit_mult()
 
-    if initial_schedule:
-        fit_mult.schedule_tbl = initial_schedule
-    fit_mult.DEBUG.mst_keys_enabled = True
+    if schedule_table:
+        fit_mult.schedule_tbl = schedule_table
 
     # Call test function
     fit_mult.__getattribute__(test_function)()
@@ -64,6 +61,10 @@ CREATE TABLE dummy_source AS SELECT
     NULL::TEXT as independent_var,
     0 as __dist_key__;
 
+INSERT INTO dummy_source VALUES(1, NULL, NULL,  1);
+INSERT INTO dummy_source VALUES(2, NULL, NULL,  2);
+INSERT INTO dummy_source VALUES(3, NULL, NULL,  3);
+
 CREATE TABLE dummy_source_summary (
     source_table TEXT,
     output_table TEXT,
@@ -79,22 +80,25 @@ CREATE TABLE dummy_source_summary (
 );
 INSERT INTO dummy_source_summary VALUES('dummy_source', 'dummy_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
 
-CREATE OR REPLACE FUNCTION test_init_schedule_tbl(
+CREATE OR REPLACE FUNCTION test_init_schedule(
+    schedule_table VARCHAR,
     model_selection_table   VARCHAR
 ) RETURNS BOOLEAN AS
 $$
-    SELECT test_fit_multiple_model('create_schedule',
-        'dummy_source', 'dummy_output', $1, 1, 'dummy_sched'
+    SELECT test_fit_multiple_model('init_schedule_tbl',
+        'dummy_source', 'dummy_output', $2, 1, $1
     );
+
+    SELECT * FROM current_schedule; -- Add asserts here
 $$ LANGUAGE SQL VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-CREATE OR REPLACE FUNCTION test_rotate_schedule_tbl(
-    initial_schedule        VARCHAR,
+CREATE OR REPLACE FUNCTION test_rotate_schedule(
+    schedule_table          VARCHAR,
     model_selection_table   VARCHAR
 ) RETURNS BOOLEAN AS
 $$
-    SELECT test_fit_multiple_model('rotate_schedule',
+    SELECT test_fit_multiple_model('rotate_schedule_tbl',
         'dummy_source', 'dummy_output', $2, 1, $1
     );
 $$ LANGUAGE SQL VOLATILE
@@ -132,7 +136,7 @@ $$
 $$ LANGUAGE SQL STABLE;
 
 -- Create mst table (maybe this should be moved to common setup file?
-DROP TABLE IF EXISTS mst_table, mst_table_summary;
+DROP TABLE IF EXISTS iris_mst_table, iris_mst_table_summary;
 SELECT load_model_selection_table(
     'iris_model_arch',
     'iris_mst_table',
@@ -149,11 +153,9 @@ SELECT load_model_selection_table(
 );
 
 -- Test init_schedule_tbl()
-SELECT test_init_schedule_tbl('iris_mst_table');
-
-DROP TABLE IF EXISTS schedule_table;
+SELECT test_init_schedule('current_schedule', 'iris_mst_table');
 
 -- Test rotate_schedule()
-SELECT test_rotate_schedule('current_schedule', 'mst_table');
+SELECT test_rotate_schedule('current_schedule', 'iris_mst_table');
 
 SELECT test_fit_multiple_model('run_training', 'iris_data_packed', 'model_output', 'iris_mst_table', 5);

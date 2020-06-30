@@ -80,7 +80,7 @@ Note that this function is disabled for Postgres.
 """
 
 @MinWarning("warning")
-class FitMultipleModel():
+class FitMultipleModel(object):
     def __init__(self, schema_madlib, source_table, model_output_table,
                  model_selection_table, num_iterations,
                  use_gpus=False, validation_table=None,
