@@ -131,6 +131,8 @@ class FitMultipleModel(object):
             self.model_info_tbl = add_postfix(self.original_model_output_tbl, '_info')
             self.model_summary_table = add_postfix(
                 self.original_model_output_tbl, '_summary')
+	else:
+	    plpy.error("Must specify an output table.")
 
         """
         For warm start, we need to copy the model output table to a temp table
