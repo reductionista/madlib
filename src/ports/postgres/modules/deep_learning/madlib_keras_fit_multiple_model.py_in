@@ -98,6 +98,7 @@ class FitMultipleModel(object):
             self.model_selection_summary_table = add_postfix(self.model_selection_table, '_summary')
 
         self.dist_key_col = DISTRIBUTION_KEY_COLNAME
+        self.prev_dist_key_col = '__prev_dist_key__'
         self.num_iterations = num_iterations
         self.metrics_compute_frequency = metrics_compute_frequency
         self.name = name

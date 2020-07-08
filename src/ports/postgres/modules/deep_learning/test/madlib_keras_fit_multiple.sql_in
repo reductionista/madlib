@@ -5,14 +5,12 @@ m4_include(`SQLCommon.m4')
             `\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in'
 )
 
-CREATE OR REPLACE FUNCTION test_fit_multiple_model(
-    test_function           VARCHAR,
+CREATE OR REPLACE FUNCTION init_fit_mult(
     source_table            VARCHAR,
     model_output_table      VARCHAR,
     model_selection_table   VARCHAR,
-    num_iterations          INTEGER,
-    schedule_table          VARCHAR
-) RETURNS BOOLEAN AS
+    num_iterations          INTEGER
+) RETURNS VOID AS
 $$
     import sys
     from mock import Mock, patch
@@ -32,27 +30,24 @@ $$
             num_iterations
         )
 
-    fit_mult = initialize_fit_mult()
-
-    if schedule_table:
-        fit_mult.schedule_tbl = schedule_table
-
-    # Call test function
-    fit_mult.__getattribute__(test_function)()
-
+    GD['fit_mult'] = initialize_fit_mult()
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
-CREATE OR REPLACE FUNCTION test_fit_multiple_model(
-    test_function           VARCHAR,
-    source_table            VARCHAR,
-    model_output_table      VARCHAR,
-    model_selection_table   VARCHAR,
-    num_iterations          INTEGER
-) RETURNS BOOLEAN AS
+CREATE OR REPLACE FUNCTION test_run_training()
+RETURNS TEXT AS
 $$
-    SELECT test_fit_multiple_model($1, $2, $3, $4, $5, NULL);
-$$ LANGUAGE SQL VOLATILE
+    fit_mult = GD['fit_mult']
+
+    # patch plpy_execute here?
+
+    if fit_mult.run_training(0):
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.run_training(0) returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
 CREATE TABLE dummy_source AS SELECT
@@ -81,27 +76,37 @@ CREATE TABLE dummy_source_summary (
 INSERT INTO dummy_source_summary VALUES('dummy_source', 'dummy_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
 
 CREATE OR REPLACE FUNCTION test_init_schedule(
-    schedule_table VARCHAR,
-    model_selection_table   VARCHAR
+    schedule_table VARCHAR
 ) RETURNS BOOLEAN AS
 $$
-    SELECT test_fit_multiple_model('init_schedule_tbl',
-        'dummy_source', 'dummy_output', $2, 1, $1
-    );
+    fit_mult = GD['fit_mult']
+    fit_mult.schedule_tbl = schedule_table
 
-    SELECT * FROM current_schedule; -- Add asserts here
-$$ LANGUAGE SQL VOLATILE
+    if fit_mult.init_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.init_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
 CREATE OR REPLACE FUNCTION test_rotate_schedule(
-    schedule_table          VARCHAR,
-    model_selection_table   VARCHAR
+    schedule_table          VARCHAR
 ) RETURNS BOOLEAN AS
 $$
-    SELECT test_fit_multiple_model('rotate_schedule_tbl',
-        'dummy_source', 'dummy_output', $2, 1, $1
-    );
-$$ LANGUAGE SQL VOLATILE
+    fit_mult = GD['fit_mult']
+
+    if schedule_table:
+        fit_mult.init_schedule_tbl()
+
+    if fit_mult.rotate_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.rotate_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
 -- Mock version() function to convince the InputValidator this is the real madlib schema
@@ -152,10 +157,21 @@ SELECT load_model_selection_table(
     ]
 );
 
+-- Create FitMultiple object for running test functions
+SELECT init_fit_mult('dummy_source', 'dummy_out', 'iris_mst_table', 1);
+
 -- Test init_schedule_tbl()
-SELECT test_init_schedule('current_schedule', 'iris_mst_table');
+DROP TABLE IF EXISTS current_schedule;
+SELECT test_init_schedule('current_schedule');
+SELECT * FROM current_schedule;
+-- Add some assert's here
 
 -- Test rotate_schedule()
-SELECT test_rotate_schedule('current_schedule', 'iris_mst_table');
+SELECT test_rotate_schedule('current_schedule');
+SELECT * FROM current_schedule;
+-- Add some assert's here
 
-SELECT test_fit_multiple_model('run_training', 'iris_data_packed', 'model_output', 'iris_mst_table', 5);
+-- Test an actual hop
+SELECT test_run_training();
+
+
