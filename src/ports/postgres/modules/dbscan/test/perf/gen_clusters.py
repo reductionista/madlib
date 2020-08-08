@@ -58,7 +58,7 @@ data = [ {'id' : i, 'point' : points[i], 'true_cluster' : labels_true[i] } for i
 output_filename = "blobs/input_blobs_{}d_{}c_{}s_{}p.csv".format(dim, nclusters, sigma, npoints)
 
 with open(output_filename, 'w') as f:
-    dw = csv.DictWriter(f, ['id', 'point', 'true_cluster'])
+    dw = csv.DictWriter(f, ['id', 'point', 'sklearn_cluster', 'madlib_cluster', 'true_cluster'])
     dw.writeheader()
     dw.writerows(data)
 
