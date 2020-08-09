@@ -18,6 +18,7 @@ else:
     print("Usage: {} INPUT_FILENAME".format(sys.argv[0]))
 
 tbl = agate.Table.from_csv(input_filename)
+print("Loaded input csv.")
 points = [ map(float, row['point'][1:-1].split(',')) for row in tbl ]
 X = np.array(points)
 labels_true = [ int(row['true_cluster']) for row in tbl ]
@@ -25,6 +26,7 @@ labels_true = [ int(row['true_cluster']) for row in tbl ]
 # Compute DBSCAN
 start_clock = time.clock()
 start_time = time.time()
+print("Starting DBSCAN at {}...".format(start_time))
 db = DBSCAN(eps=0.3, min_samples=10).fit(X)
 print("CPU time: {}".format(time.clock() - start_clock))
 print("Real time: {}".format(time.time() - start_time))

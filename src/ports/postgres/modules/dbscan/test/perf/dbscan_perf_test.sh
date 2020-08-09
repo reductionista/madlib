@@ -1,5 +1,5 @@
 #!/bin/bash
-npoints=10000
+npoints=100000
 for i in {2..8}
 do
     dim=$((i*i))
@@ -9,10 +9,10 @@ do
     echo ./gen_clusters.py "$blobfile" "$dim" ${nclusters} $sigma $npoints
     ./gen_clusters.py "$dim" "${nclusters}" "$sigma" "$npoints" > "stats/sklearn_${fname}.txt" &&\
     ./dbscan_sklearn.py "blobs/input_blobs_${fname}.csv" >> "stats/sklearn_${fname}.txt"
-    echo ./dbscan_sklearn.py input_blobs_${fname}.csv #"> stats/sklearn_${fname}.txt"
     if [ $? -ne 0 ]
     then
         echo Stopping perf run early.
-        exit(-1)
+        exit -1
     fi
+    echo ./dbscan_sklearn.py input_blobs_${fname}.csv
 done

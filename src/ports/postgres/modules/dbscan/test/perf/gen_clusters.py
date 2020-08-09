@@ -24,15 +24,24 @@ def dist_squared(x, y):
     d = [ (yy - xx) * (yy - xx) for xx,yy in zip(x,y) ]
     return sum(d)
 
-centers = []
 print("Choosing {} cluster centers...".format(nclusters))
+centers = []
+mask = int(math.pow(2, dim))
+used = set()
+if nclusters > mask:
+    print("Too many clusters for d={}, maximum is {}".format(dim,mask))
+    sys.exit(-1)
+
 for cluster in range(nclusters):
-    mask = int(math.pow(2, dim))
-    c = random.randint(0, mask)
+    while len(used) < mask:
+        c = random.randint(0, mask)
+        if c not in used:
+            used.add(c)
+            break
+
     center = []
     for bit in range(dim):
         center.append(1 if (1 << bit) & c else -1 )
-    print center
     centers.append(center)
 
 for i, c in enumerate(centers):
@@ -55,7 +64,7 @@ points = map(lambda xi : '{' + ','.join(map(str, xi)) + '}', X)
 
 data = [ {'id' : i, 'point' : points[i], 'true_cluster' : labels_true[i] } for i in range(len(labels_true)) ]
 
-output_filename = "blobs/input_blobs_{}d_{}c_{}s_{}p.csv".format(dim, nclusters, sigma, npoints)
+output_filename = "blobs/input_blobs_{0}d_{1}c_{2:.2f}s_{3}p.csv".format(dim, nclusters, sigma, npoints)
 
 with open(output_filename, 'w') as f:
     dw = csv.DictWriter(f, ['id', 'point', 'sklearn_cluster', 'madlib_cluster', 'true_cluster'])
