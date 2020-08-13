@@ -19,6 +19,7 @@
 
 import plpy
 
+import tensorflow as tf
 import keras
 from keras import backend as K
 from keras.layers import *
@@ -287,7 +288,7 @@ def internal_keras_predict(independent_var, model_architecture, model_weights,
         independent_var /= normalizing_const
 
         if is_response:
-            with K.tf.device(device_name):
+            with tf.device(device_name):
                 y_prob = model.predict(independent_var)
                 proba_argmax = y_prob.argmax(axis=-1)
             # proba_argmax is a list with exactly one element in it. That element
@@ -295,7 +296,7 @@ def internal_keras_predict(independent_var, model_architecture, model_weights,
             # output of Keras' predict function.
             result = proba_argmax
         else:
-            with K.tf.device(device_name):
+            with tf.device(device_name):
                 probs = model.predict(independent_var)
             # probs is a list containing a list of probability values, of all
             # class levels. Since we are assuming each input is a single image,

@@ -23,6 +23,7 @@ import plpy
 import sys
 import time
 
+import tensorflow as tf
 from keras import backend as K
 from keras.layers import *
 from keras.models import *
@@ -749,7 +750,7 @@ def internal_keras_eval_transition(state, dependent_var, independent_var,
     x_val = np_array_float32(independent_var, independent_var_shape)
     y_val = np_array_int16(dependent_var, dependent_var_shape)
 
-    with K.tf.device(device_name):
+    with tf.device(device_name):
         res = segment_model.evaluate(x_val, y_val)
 
     # if metric is None, model.evaluate will only return loss as a scalar
