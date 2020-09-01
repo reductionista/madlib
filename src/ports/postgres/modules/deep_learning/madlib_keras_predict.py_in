@@ -19,6 +19,7 @@
 
 import plpy
 
+import tensorflow as tf
 import keras
 from keras import backend as K
 from keras.layers import *
@@ -314,7 +315,7 @@ def internal_keras_predict(independent_var, model_architecture, model_weights,
         independent_var = expand_input_dims(independent_var)
         independent_var /= normalizing_const
 
-        with K.tf.device(device_name):
+        with tf.device(device_name):
             probs = model.predict(independent_var)
         # probs is a list containing a list of probability values, of all
         # class levels. Since we are assuming each input is a single image,
