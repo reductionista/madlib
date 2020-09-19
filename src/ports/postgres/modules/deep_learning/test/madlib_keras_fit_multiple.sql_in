@@ -30,7 +30,10 @@ $$
             num_iterations
         )
 
-    GD['fit_mult'] = initialize_fit_mult()
+    fit_mult = initialize_fit_mult()
+    fit_mult.init_model_output_tbl()
+    GD['fit_mult'] = fit_mult
+    
 $$ LANGUAGE plpythonu VOLATILE
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
 
@@ -73,7 +76,7 @@ CREATE TABLE dummy_source_summary (
     distribution_rules      TEXT,
     __internal_gpu_config__ TEXT
 );
-INSERT INTO dummy_source_summary VALUES('dummy_source', 'dummy_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
+INSERT INTO dummy_source_summary VALUES('dummy_source', 'model_out', 'y', 'x', NULL, NULL, 1.0, '1', 'all_segments', '');
 
 CREATE OR REPLACE FUNCTION test_init_schedule(
     schedule_table VARCHAR
@@ -97,7 +100,7 @@ CREATE OR REPLACE FUNCTION test_rotate_schedule(
 $$
     fit_mult = GD['fit_mult']
 
-    if schedule_table:
+    if fit_mult.schedule_tbl != schedule_table:
         fit_mult.init_schedule_tbl()
 
     if fit_mult.rotate_schedule_tbl():
@@ -158,17 +161,17 @@ SELECT load_model_selection_table(
 );
 
 -- Create FitMultiple object for running test functions
-SELECT init_fit_mult('dummy_source', 'dummy_out', 'iris_mst_table', 1);
+SELECT init_fit_mult('dummy_source', 'model_out', 'iris_mst_table', 1);
 
 -- Test init_schedule_tbl()
 DROP TABLE IF EXISTS current_schedule;
 SELECT test_init_schedule('current_schedule');
-SELECT * FROM current_schedule;
+SELECT * FROM current_schedule ORDER BY __dist_key__;
 -- Add some assert's here
 
 -- Test rotate_schedule()
 SELECT test_rotate_schedule('current_schedule');
-SELECT * FROM current_schedule;
+SELECT * FROM current_schedule ORDER BY __dist_key__;
 -- Add some assert's here
 
 -- Test an actual hop
