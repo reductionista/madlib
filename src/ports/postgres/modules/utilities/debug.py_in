@@ -68,10 +68,15 @@ def plpy_execute(*args, **kwargs):
 
     # Run actual sql command, with timing
     start = time.time()
-    plpy.execute(*args, **kwargs)
+    res = plpy.execute(*args, **kwargs)
 
     # Print how long execution of query took
     plpy.info("Query took {0}s".format(time.time() - start))
+    if res:
+        plpy.info("Query returned {} row(s)".format(len(res)))
+    else:
+        plpy.info("Query returned 0 rows")
+    return res
 
 plpy_info_enabled = False
 def plpy_info(*args, **kwargs):
