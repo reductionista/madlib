@@ -6,10 +6,37 @@ from deep_learning.madlib_keras_helper import DISTRIBUTION_KEY_COLNAME
 mst_key_col = ModelSelectionSchema.MST_KEY
 dist_key_col = DISTRIBUTION_KEY_COLNAME
 
+start_times = dict()
+
 timings_enabled = False
 def print_timings(msg, force=False):
     if timings_enabled or force:
         plpy_orig.info(msg)
+
+def start_timing(msg, force=False):
+    if timings_enabled or force:
+        start_times[msg] = time.time()
+        plpy_orig.info("|_{}_time_HDR|Elapsed (s)|Current|Current (s)|Start|Start (s)|".format(msg))
+
+def print_timing(msg, force=False):
+    if timings_enabled or force:
+        try:
+            start_time = start_times[msg]
+        except:
+            raise Exception(
+                "print_timing({msg}) called with no start_timing({msg})!".format(msg=msg)
+            )
+        current_time = time.time() 
+        plpy_orig.info(
+            '|_{0}_time|{1}|{2}|{3}|{4}|{5}'.format(
+                msg,
+                current_time - start_time,
+                time.ctime(current_time),
+                current_time,
+                time.ctime(start_time),
+                start_time
+            )
+        )
 
 mst_keys_enabled = False
 def print_mst_keys(table, label, force=False):
