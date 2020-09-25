@@ -131,12 +131,18 @@ CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     use_gpus                    BOOLEAN,
     accessible_gpus_for_seg     INTEGER[],
     prev_serialized_weights     BYTEA,
-    is_final_iteration          BOOLEAN
+    is_final_iteration          BOOLEAN,
     custom_function_map         BYTEA
 ) RETURNS BYTEA AS
 $$
-    SELECT $1; -- Just return whatever was passed in
-$$ LANGUAGE SQL STABLE;
+DECLARE
+    i INTEGER := 0;
+BEGIN
+    i := i + 1;
+    RAISE NOTICE 'fit transition called % time',i;
+    RETURN state; -- Just return whatever was passed in
+END
+$$ LANGUAGE plpgSQL;
 
 CREATE OR REPLACE FUNCTION test_run_training(
     source_table TEXT
@@ -184,14 +190,24 @@ SELECT init_fit_mult('iris_mst_table');
 DROP TABLE IF EXISTS current_schedule;
 SELECT test_init_schedule('current_schedule');
 SELECT * FROM current_schedule ORDER BY __dist_key__;
+
+SELECT * FROM iris_mst_table;
+
 -- Add some assert's here
+SELECT ARRAY(SELECT mst_key FROM iris_mst_table ORDER BY mst_key) s \gset mst
+SELECT ASSERT(COUNT(*) = ARRAY_UPPER(:'msts'::INTEGER[], 1),
+    'test_init_schedule returned ' || count(*) || ' rows. ' ||
+    'Expected ' || ARRAY_UPPER(:'msts'::INTEGER[], 1) || ' rows.') FROM current_schedule;
+SELECT ASSERT(ARRAY(SELECT mst_key AS mst_keys FROM current_schedule ORDER BY mst_keys) = :'msts',
+    'mst keys returned from test_init_schedule() do not match iris_mst_table');
 
 -- Test rotate_schedule()
 SELECT test_rotate_schedule('current_schedule');
 SELECT * FROM current_schedule ORDER BY __dist_key__;
+
+--SELECT check_full_rotation()
+
 -- Add some assert's here
 
 -- Test an actual hop
 SELECT test_run_training('iris_data_packed');
-
-

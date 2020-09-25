@@ -206,9 +206,6 @@ def fit(schema_madlib, source_table, model, model_arch_table,
         info_str = "\tTime for training in iteration {0}: {1} sec".format(i,
             end_iteration - start_iteration)
 
-        if (serialized_weights is None):
-            plpy.warning("serialized_weights is NULL in fit() for iteration {}!".format(i))
-
         if should_compute_metrics_this_iter(i, metrics_compute_frequency,
                                             num_iterations):
             # Compute loss/accuracy for training data.
@@ -422,8 +419,6 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
     given dataset (table.)
     """
     start_val = time.time()
-    if (serialized_weights is None):
-        plpy.error("serialized_weights is NULL in compute_loss_and_metrics!")
     evaluate_result = get_loss_metric_from_keras_eval(schema_madlib,
                                                    table,
                                                    compile_params,
@@ -786,7 +781,6 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
         mult_sql = ''
         custom_map_var = '$2'
         evaluate_query = plpy.prepare(eval_sql.format(**locals()), ["bytea", "bytea"])
-        plpy.warning(eval_sql.format(**locals()))
         res = plpy.execute(evaluate_query, [serialized_weights, custom_function_map])
         plpy.info("after: " + eval_sql)
 
