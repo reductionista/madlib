@@ -57,7 +57,6 @@ DEBUG.plpy_info_enabled = True
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
-dist_key_col = DISTRIBUTION_KEY_COLNAME
 
 """
 FitMultipleModel: This class implements the Model Hopper technique for
@@ -99,6 +98,7 @@ class FitMultipleModel():
         if self.model_selection_table:
             self.model_selection_summary_table = add_postfix(self.model_selection_table, '_summary')
 
+        self.dist_key_col = DISTRIBUTION_KEY_COLNAME
         self.num_iterations = num_iterations
         self.metrics_compute_frequency = metrics_compute_frequency
         self.name = name
@@ -133,8 +133,6 @@ class FitMultipleModel():
             self.model_summary_table = add_postfix(
                 self.original_model_output_tbl, '_summary')
 
-        self.model_output_tbl = self.original_model_output_tbl
-
         """
         For warm start, we need to copy the model output table to a temp table
         because we call truncate on the model output table while training.
@@ -143,8 +141,8 @@ class FitMultipleModel():
         """
         self.warm_start = bool(warm_start)
         self.warm_start_msts = []
-        if self.warm_start:
-            self.model_output_tbl = unique_string('initial_model')
+
+        self.model_output_tbl = unique_string('model_output')
 
         self.fit_validator_train = FitMultipleInputValidator(
             self.source_table, self.validation_table, self.original_model_output_tbl,
@@ -155,7 +153,6 @@ class FitMultipleModel():
             self.accessible_gpus_for_seg)
         if self.metrics_compute_frequency is None:
             self.metrics_compute_frequency = num_iterations
-
 
         self.msts = self.fit_validator_train.msts
         self.model_arch_table = self.fit_validator_train.model_arch_table
@@ -181,14 +178,14 @@ class FitMultipleModel():
                 get_image_count_per_seg_for_minibatched_data_from_db(
                     self.validation_table)
         self.model_input_tbl = unique_string(desp='model_input')
-        self.current_schedule_tbl = unique_string(desp='current_schedule')
+        self.schedule_tbl = unique_string(desp='schedule')
 
-        self.dist_keys = query_dist_keys(self.source_table, dist_key_col)
+        self.dist_keys = query_dist_keys(self.source_table, self.dist_key_col)
+        plpy.info("init_dist_keys = {0}".format(self.dist_keys))
         self.max_dist_key = sorted(self.dist_keys)[-1]
+        plpy.info("sorted_dist_keys = {0}".format(sorted(self.dist_keys)))
+        plpy.info("max_dist_key = {0}".format(self.max_dist_key))
         self.extra_dist_keys = []
-
-        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
-        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.dist_keys))
 
         num_msts = len(self.msts)
         num_dist_keys = len(self.dist_keys)
@@ -202,25 +199,41 @@ class FitMultipleModel():
                 for i in range(num_msts - num_dist_keys):
                     self.extra_dist_keys.append(self.max_dist_key + 1 + i)
 
+        DEBUG.plpy.info('dist_keys : {}'.format(self.dist_keys))
+        DEBUG.plpy.info('extra_dist_keys : {}'.format(self.extra_dist_keys))
+
         random.shuffle(self.msts_for_schedule)
 
-        self.grand_schedule = self.generate_grand_schedule(self.msts_for_schedule)
+        # Comma-separated list of the mst_keys, including NULL's
+        #  This will be used to pass the mst keys to the db as
+        #  a sql ARRAY[]
+        self.all_mst_keys = '[' + ','.join(
+            [ str(mst['mst_key']) if mst else 'NULL'\
+                for mst in self.msts_for_schedule ]
+        ) + ']'
+
+        # List of all dist_keys, including any extra dist keys beyond
+        #  the # segments we'll be training on--these represent the
+        #  segments models will rest on while not training, which
+        #  may overlap with the ones that will have training on them.
+        self.all_dist_keys = self.dist_keys + self.extra_dist_keys
+
         self.gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
         self.unlogged_table = "UNLOGGED" if is_platform_gp6_or_up() else ''
 
-        if self.warm_start:
-            self.create_model_output_tbl_warm_start()
-        else:
-            self.create_model_output_tbl()
+        self.create_schedule_tbl()
 
-        self.weights_to_update_tbl = unique_string(desp='weights_to_update')
+        self.create_model_output_tbl()
+        if self.warm_start:
+            self.copy_warm_start_weights()
+        self.initialize_model_output_and_info()
+
         self.fit_multiple_model()
 
         # Update and cleanup metadata tables
         self.insert_info_table()
         self.create_model_summary_table()
-        if self.warm_start:
-            self.cleanup_for_warm_start()
+        self.rename_model_output_tbl()
         reset_cuda_env(original_cuda_env)
 
     def fit_multiple_model(self):
@@ -231,9 +244,9 @@ class FitMultipleModel():
             self.train_multiple_model()
             self.end_training_time = datetime.datetime.now()
 
-    def cleanup_for_warm_start(self):
+    def rename_model_output_tbl(self):
         """
-        1. drop original model table
+        1. drop original model table if exists
         2. rename temp to original
         :return:
         """
@@ -244,12 +257,9 @@ class FitMultipleModel():
                      self.original_model_output_tbl)
 
     def train_multiple_model(self):
-        total_msts = len(self.msts_for_schedule)
+        total_msts = len(self.all_mst_keys)
         for iter in range(1, self.num_iterations+1):
             for hop in range(total_msts):
-                current_sched = [self.grand_schedule[dist_key][hop]
-                           for dist_key in self.dist_keys]
-                self.create_current_schedule_tbl(current_sched)
                 self.is_final_training_call = (iter == self.num_iterations and hop == total_msts-1)
                 if hop == 0:
                     start_iteration = time.time()
@@ -260,6 +270,8 @@ class FitMultipleModel():
                                     "{0}: {1} sec\n".format(iter,
                                                             end_iteration -
                                                             start_iteration)
+                else:
+                    self.rotate_schedule_tbl()
 
             if should_compute_metrics_this_iter(iter,
                                                 self.metrics_compute_frequency,
@@ -308,12 +320,8 @@ class FitMultipleModel():
             mst_metric[mst[self.mst_key_col]].append(metric)
             self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
 
-    def generate_grand_schedule(self, msts):
-        """ Generate the schedule for models hopping to segments """
-        grand_schedule = {}
-        for index, dist_key in enumerate(self.dist_keys):
-            grand_schedule[dist_key] = rotate(msts, index)
-        return grand_schedule
+    def create_schedule_tbl(self):
+        self.prev_dist_key_col = '__prev_dist_key__'
 
     def populate_object_map(self):
         builtin_losses = dir(losses)
@@ -351,39 +359,55 @@ class FitMultipleModel():
 
     def create_current_schedule_tbl(self, current_sched):
         create_sched_query = """
-                         CREATE {self.unlogged_table} TABLE {self.current_schedule_tbl}
-                                ({self.model_id_col} INTEGER,
-                                 {self.compile_params_col} VARCHAR,
-                                 {self.fit_params_col} VARCHAR,
-                                 {dist_key_col} INTEGER,
-                                 {self.mst_key_col} INTEGER,
-                                 {self.object_map_col} BYTEA)
-                                 DISTRIBUTED BY ({dist_key_col})
-                         """.format(dist_key_col=dist_key_col, **locals())
-        plpy.execute(create_sched_query)
-        for mst_row, dist_key in zip(current_sched, self.dist_keys):
-            if mst_row:
-                model_id = mst_row[self.model_id_col]
-                compile_params = mst_row[self.compile_params_col]
-                fit_params = mst_row[self.fit_params_col]
-                mst_key = mst_row[self.mst_key_col]
-                object_map = mst_row[self.object_map_col]
-            else:
-                model_id = "NULL"
-                compile_params = "NULL"
-                fit_params = "NULL"
-                mst_key = "NULL"
-                object_map = None
-            mst_insert_query = """
-                               INSERT INTO {self.current_schedule_tbl}
-                                   VALUES ({model_id},
-                                           $madlib${compile_params}$madlib$,
-                                           $madlib${fit_params}$madlib$,
-                                           {dist_key},
-                                           {mst_key},
-                                           $1)
-                                """.format(**locals()), ["BYTEA"])
-            plpy.execute(mst_insert_query, [object_map])
+            CREATE {self.unlogged_table} TABLE {self.schedule_tbl} AS
+                WITH map AS
+                    (SELECT
+                        unnest(ARRAY{self.all_mst_keys}) {self.mst_key_col},
+                        unnest(ARRAY{self.all_dist_keys}) {self.dist_key_col}
+                    )
+                SELECT
+                    map.{self.mst_key_col},
+                    {self.model_id_col},
+                    map.{self.dist_key_col} AS {self.prev_dist_key_col},
+                    map.{self.dist_key_col}
+                FROM map LEFT JOIN {self.model_selection_table}
+                    USING ({self.mst_key_col})
+            DISTRIBUTED BY ({self.dist_key_col})
+        """.format(self=self)
+        DEBUG.plpy.execute(create_sched_query)
+
+    def rotate_schedule_tbl(self):
+        if not hasattr(self, 'rotate_schedule_plan'):
+            self.next_schedule_tbl = unique_string('next_schedule')
+            rotate_schedule_tbl_query = """
+                CREATE TABLE {self.next_schedule_tbl} AS
+                    SELECT
+                        {self.mst_key_col},
+                        {self.model_id_col},
+                        {self.dist_key_col} AS {self.prev_dist_key_col},
+                        COALESCE(
+                            LEAD({self.dist_key_col})
+                                OVER(ORDER BY {self.dist_key_col}),
+                            FIRST_VALUE({self.dist_key_col})
+                                OVER(ORDER BY {self.dist_key_col})
+                        ) AS {self.dist_key_col}
+                    FROM {self.schedule_tbl};
+            """.format(self=self)
+            self.rotate_schedule_tbl_plan = plpy.prepare(rotate_schedule_tbl_query)
+
+        plpy.execute(self.rotate_schedule_tbl_plan)
+
+        self.truncate_and_drop(self.schedule_tbl)
+        plpy.execute("""
+            ALTER TABLE {self.next_schedule_tbl}
+            RENAME TO {self.schedule_tbl}
+        """.format(self=self))
+
+    def dont_rotate_schedule_tbl(self):
+        plpy.execute("""
+            UPDATE {self.schedule_tbl}
+                SET {self.prev_dist_key_col} = {self.dist_key_col}
+        """.format(self=self))
 
     def create_model_output_tbl(self):
         output_table_create_query = """
@@ -391,37 +415,42 @@ class FitMultipleModel():
                                     ({self.mst_key_col} INTEGER,
                                      {self.model_weights_col} BYTEA,
                                      {self.model_arch_col} JSON,
-                                     {dist_key_col} INTEGER)
-                                     DISTRIBUTED BY ({dist_key_col})
-                                    """.format(dist_key_col=dist_key_col, self=self)
+                                     {self.compile_params_col} TEXT,
+                                     {self.fit_params_col} TEXT,
+                                     {self.dist_key_col} INTEGER)
+                                     DISTRIBUTED BY ({self.dist_key_col})
+                                    """.format(self=self)
         plpy.execute(output_table_create_query)
-        self.initialize_model_output_and_info()
 
-    def create_model_output_tbl_warm_start(self):
+    def copy_warm_start_weights(self):
         """
-        For warm start, we need to copy the model output table to a temp table
-        because we call truncate on the model output table while training.
-        If the query gets aborted, we need to make sure that the user passed
-        model output table can be recovered.
+        For warm start, we need to copy any rows of the model output
+        table provided by the user whose mst keys appear in the
+        supplied model selection table.  We also copy over the 
+        compile & fit params from the model_selection_table, and
+        the dist_key's from the schedule table.
         """
+
         plpy.execute("""
-            CREATE TABLE {self.model_output_tbl} (
-            LIKE {self.original_model_output_tbl} INCLUDING indexes) DISTRIBUTED BY ({dist_key_col})
-            """.format(dist_key_col=dist_key_col, self=self))
+            INSERT INTO {self.model_output_tbl}
+                SELECT s.{self.mst_key_col},
+                    o.{self.model_weights_col},
+                    o.{self.model_arch_col},
+                    m.{self.compile_params_col},
+                    m.{self.fit_params_col},
+                    s.{self.dist_key_col}
+                FROM {self.schedule_tbl} s
+                    JOIN {self.model_selection_table} m
+                        USING ({self.mst_key_col})
+                    JOIN {self.original_model_output_tbl} o
+                        USING ({self.mst_key_col})
+        """.format(self=self))
 
-        plpy.execute("""INSERT INTO {self.model_output_tbl}
-            SELECT * FROM {self.original_model_output_tbl};
-            """.format(self=self))
+        self.warm_start_msts = plpy.execute("""
+            SELECT array_agg({0}) AS a FROM {1}
+        """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
 
-        plpy.execute(""" DELETE FROM {self.model_output_tbl}
-                WHERE {self.mst_key_col} NOT IN (
-                    SELECT {self.mst_key_col} FROM {self.model_selection_table})
-                """.format(self=self))
-        self.warm_start_msts = plpy.execute(
-            """ SELECT array_agg({0}) AS a FROM {1}
-            """.format(self.mst_key_col, self.model_output_tbl))[0]['a']
-        plpy.execute("DROP TABLE {0}".format(self.model_info_table))
-        self.initialize_model_output_and_info()
+        plpy.execute("DROP TABLE IF EXISTS {0}".format(self.model_info_table))
 
     def initialize_model_output_and_info(self):
         info_table_create_query = """
@@ -447,9 +476,7 @@ class FitMultipleModel():
 
         plpy.execute(info_table_create_query)
 
-        initial_sched = reversed(rotate(self.msts_for_schedule, -1))
-
-        for index, mst in enumerate(initial_sched):
+        for index, mst in enumerate(self.msts_for_schedule):
             if mst is None:
                 continue
 
@@ -509,24 +536,36 @@ class FitMultipleModel():
                                    loss_type=loss_type)
             plpy.execute(info_table_insert_query)
 
+            num_dist_keys = len(self.dist_keys)
             if not mst['mst_key'] in self.warm_start_msts:
-                if index < len(self.dist_keys):
+                if index < num_dist_keys:
                     dist_key = self.dist_keys[index]
                 else:  # For models that won't be trained on first hop
                     dist_key = self.extra_dist_keys[index - num_dist_keys]
 
-                plpy.info("Initializing model output tbl with mst_key = {}, dist_key = {}".format(mst['mst_key'], dist_key))
+                DEBUG.plpy.info(
+                    "Initializing model output tbl: mst_key={}, dist_key={}"\
+                    .format(mst['mst_key'], dist_key)
+                )
+
                 output_table_insert_query = """
-                                    INSERT INTO {self.model_output_tbl} (
-                                        {self.mst_key_col},
-                                        {self.model_weights_col},
-                                        {self.model_arch_col},
-                                        {dist_key_col})
-                                    VALUES ({mst_key_val}, $1, $2, {dist_key})
-                                       """.format(self=self,
-                                                  mst_key_val=mst[self.mst_key_col],
-                                                  dist_key_col=dist_key_col,
-                                                  dist_key=dist_key)
+                    INSERT INTO {self.model_output_tbl} (
+                        {self.mst_key_col},
+                        {self.model_weights_col},
+                        {self.model_arch_col},
+                        {self.compile_params_col},
+                        {self.fit_params_col},
+                        {self.dist_key_col}
+                    ) VALUES (
+                        $MADLIB${{{self.mst_key_col}}}$MADLIB$,
+                        $1,
+                        $2,
+                        $MADLIB${{{self.compile_params_col}}}$MADLIB$,
+                        $MADLIB${{{self.fit_params_col}}}$MADLIB$,
+                        {dist_key}
+                    )
+                """.format(dist_key=dist_key, self=self).format(**mst)
+
                 output_table_insert_query_prepared = plpy.prepare(
                     output_table_insert_query, ["bytea", "json"])
                 plpy.execute(output_table_insert_query_prepared, [
@@ -649,164 +688,115 @@ class FitMultipleModel():
 
         start_time = time.time()
 
-        self.hop_plan_tbl = unique_string('hop_plan')
-        create_hop_tbl_query = """
-            CREATE TABLE {self.hop_plan_tbl} AS
-                SELECT
-                    o.{dist_key_col} AS old_dist_key,
-                    sched.{self.compile_params_col},
-                    sched.{self.fit_params_col},
-                    sched.{dist_key_col} AS new_dist_key
-            FROM model_output o LEFT JOIN {self.current_schedule_tbl} sched
-                USING ({self.mst_key_col})
-            DISTRIBUTED BY (old_dist_key);
-        """.format(dist_key_col=dist_key_col, self=self)
+        if hop > 0:
+            hop_query = """
+                CREATE TABLE {self.model_input_tbl} AS
+                    SELECT o.{self.mst_key_col},
+                           o.{self.model_weights_col},
+                           o.{self.model_arch_col},
+                           o.{self.compile_params_col},
+                           o.{self.fit_params_col},
+                           s.{self.dist_key_col}
+                    FROM {self.model_output_tbl} o JOIN {self.schedule_tbl} s
+                        ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
+                    DISTRIBUTED BY ({self.dist_key_col});
+            """.format(self=self)
 
-        plpy.execute(create_hop_tbl_query)
+            DEBUG.plpy.execute(hop_query)
 
-        DEBUG.print_timings("|_prehop_time_|{}|".format(time.time() - start_time))
-        DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
+            DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
 
-        hop_query = """
-            CREATE TABLE {self.model_input_tbl} AS
-                SELECT o.{self.mst_key_col},
-                       o.{self.model_weights_col},
-                       o.{self.model_arch_col},
-                       h.{self.compile_params_col},
-                       h.{self.fit_params_col},
-                       h.new_dist_key AS {dist_key_col}
-                FROM {self.model_output_tbl} o JOIN {self.hop_plan_tbl} h
-                    ON h.old_dist_key=o.{dist_key_col}
-                DISTRIBUTED BY ({dist_key_col});
-        """.format(dist_key_col=dist_key_col, self=self)
+            DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
-        DEBUG.plpy.execute(hop_query)
-        self.truncate_and_drop(self.hop_plan_tbl)
-
-        DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
-
-        DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
-
-        truncate_time = time.time()
-        self.truncate_and_drop(self.model_output_tbl)
-
-        DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
-
+            truncate_time = time.time()
+            self.truncate_and_drop(self.model_output_tbl)
+            DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
+        else:
+            # Skip hop if it's the first in an iteration, just rename
+            plpy.execute("""
+                ALTER TABLE {self.model_output_tbl}
+                    RENAME TO {self.model_input_tbl}
+            """.format(self=self))
+                
         udf_time = time.time()
 
 #TODO: maybe this and all other repetitive queries should be saved
 #        as a prepared statement?  (Might be faster?)
 
-        use_gpus = self.use_gpus if self.use_gpus else False
-
         udf_query = """
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
-            SELECT model_in.{self.mst_key_col},
-                {self.schema_madlib}.fit_transition(NULL, {mb_dep_var_col},
-                {mb_indep_var_col},
-                {self.dep_shape_col},
-                {self.ind_shape_col},
-                model_in.{self.model_arch_col}::TEXT,
-                model_in.{self.compile_params_col}::TEXT,
-                model_in.{self.fit_params_col}::TEXT,
-                src.{dist_key_col},
-                ARRAY{self.dist_key_mapping},
-                src.{self.gp_segment_id_col},
-                {self.segments_per_host},
-                ARRAY{self.images_per_seg_train},
-                {use_gpus}::BOOLEAN,
-                ARRAY{self.accessible_gpus_for_seg},
-                model_in.{self.model_weights_col}::BYTEA,
-                {is_final_iteration}::BOOLEAN,
-                {self.mst_weights_tbl}.{self.object_map_col}::BYTEA
-                )::BYTEA AS {self.model_weights_col},
+            SELECT
+                model_in.{self.mst_key_col},
+                CASE WHEN src.{self.dist_key_col} IS NULL
+                THEN
+                    model_in.{self.model_weights_col}
+                ELSE
+                    {self.schema_madlib}.fit_transition(
+                        NULL,
+                        {mb_dep_var_col},
+                        {mb_indep_var_col},
+                        {self.dep_shape_col},
+                        {self.ind_shape_col},
+                        model_in.{self.model_arch_col}::TEXT,
+                        model_in.{self.compile_params_col}::TEXT,
+                        model_in.{self.fit_params_col}::TEXT,
+                        src.{self.dist_key_col},
+                        ARRAY{self.dist_key_mapping},
+                        src.{self.gp_segment_id_col},
+                        {self.segments_per_host},
+                        ARRAY{self.images_per_seg_train},
+                        {self.use_gpus}::BOOLEAN,
+                        ARRAY{self.accessible_gpus_for_seg},
+                        model_in.{self.model_weights_col}::BYTEA,
+                        {is_final_iteration}::BOOLEAN
+                    )
+                END::BYTEA AS {self.model_weights_col},
                 model_in.{self.model_arch_col},
                 model_in.{self.compile_params_col},
                 model_in.{self.fit_params_col},
-                src.{dist_key_col}
-            FROM {self.source_table} src JOIN {self.model_input_tbl} model_in
-                USING ({dist_key_col}) 
+                model_in.{self.dist_key_col}
+            FROM {self.model_input_tbl} model_in
+                LEFT JOIN {self.source_table} src
+                --USING ({self.dist_key_col}) 
+                ON model_in.{self.dist_key_col} = src.{self.dist_key_col}
             WHERE model_in.{self.mst_key_col} IS NOT NULL
-                AND model_in.{dist_key_col} <= {self.max_dist_key}
-            DISTRIBUTED BY({dist_key_col})
+            DISTRIBUTED BY({self.dist_key_col})
             """.format(mb_dep_var_col=mb_dep_var_col,
                        mb_indep_var_col=mb_indep_var_col,
                        is_final_iteration=True,
-                       dist_key_col=dist_key_col,
-                       use_gpus=use_gpus,
                        self=self
                        )
         plpy.execute(udf_query)
-
         DEBUG.print_timings("|_udf_time_|{}|".format(time.time() - udf_time))
+
+        res = plpy.execute("""
+            SELECT count(*)
+            FROM {self.model_output_tbl}
+        """.format(self=self))
+        DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
 
         delete_time = time.time()
         plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
         DEBUG.print_timings("|_delete_time_|{}|".format(time.time() - delete_time))
 
-        # Copy over any extra models that were just resting
-        #  on the bench this hop.
-        #
-        # Because this is an INSERT instead of an UPDATE,
-        #  no models will move at this point.  For now,
-        #  they will continue to stay on whatever segment
-        #  they last trained on.
-        #
-        # At some point, they will be chosen to come off the
-        #  bench and participate in training again.  When that
-        #  happens, they may have to move at that piont during
-        #  the beginning of the hop when they resume.
-        #
-        # Until then, they will remain on the same segment, while
-        #  getting copied back and forth between input and output
-        #  model tables each cycle.
-        #
-        insert_time = time.time()
-        copy_untrained_models_query = """
-            INSERT INTO {self.model_output_tbl}
-                ({self.mst_key_col}, {self.model_weights_col},
-                 {self.model_arch_col}, {dist_key_col})
-                SELECT {self.mst_key_col},
-                       {self.model_weights_col}::BYTEA,
-                       {self.model_arch_col}::JSON,
-                       {dist_key_col}
-                FROM {self.model_input_tbl}
-                WHERE {dist_key_col} is NULL
-        """.format(dist_key_col=dist_key_col, self=self)
-
-        DEBUG.plpy.execute(copy_untrained_models_query)
-        DEBUG.print_timings("|_copy_time_|{}|".format(time.time() - insert_time))
-
         truncate_time = time.time()
         self.truncate_and_drop(self.model_input_tbl)
-        self.truncate_and_drop(self.current_schedule_tbl)
         DEBUG.print_timings("|_truncate_input_time_|{}|".format(time.time() - truncate_time))
 
         DEBUG.print_timings("|_run_training_time_{}|{}|".format(hop, time.time()-start_time))
 
     def truncate_and_drop(self, table):
-        with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
-            plpy.execute("""
-                TRUNCATE TABLE {table};
-                DROP TABLE {table}
-            """.format(table=table))
-
-    def truncate_and_drop_tables(self):
         """
-        Context: UPDATE statements in postgres are not in-place replacements but
-        the row to be updated is marked for deletion(note that the disk space for
-        this row doesn't get released until vaccuum is called) and a new row in
-        inserted.
-
-        This function will clear out the disk space used by the model_output_tbl
-        and also drop all the other intermediate tables.
-        If available, set the `` guc so that the truncate command can release the
-        disk space. The disk space will be released immediately and hence the
-        model_output table won't grow in size with each UPDATE statement.
+        This function truncates and drops one of the intermediate tables used
+        during an iteration (mostly, model_input_tbl and model_output_tbl).
+        If available, set the `dev_opt_unsafe_truncate_in_subtransaction` guc 
+        so that the truncate command can release the disk space. The disk space
+        will be released immediately and hence the model_output table won't grow
+        in size with each hop.
 
         Without this guc, the disk space won't be released and each
-        call to the UPDATE statement will keep adding to the disk space. The disk
-        space will only be released when the query is completed.
+        call to TRUNCATE or DROP will keep adding to the disk space. The
+        disk space will only be released when the query is completed.
 
         The guc can cause data loss if not used properly. Since truncate will
         actually clear the disk space immediately, there is no way to recover to
@@ -814,31 +804,10 @@ class FitMultipleModel():
         be set for intermediate tables and never for tables created outside the
         scope of the fit_multiple udf.
 
-        Workflow
-        1. Create temp table from model table (including the indexes)
-        2. truncate the model table to release disk space
-        3. rename temp table to model table so that it can be reused for the next
-        hop
-        :return:
         """
 
         with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
-            temp_model_table = unique_string('updated_model')
-            unlogged_table = self.unlogged_table if not self.is_final_training_call else ''
             plpy.execute("""
-            CREATE {unlogged_table} TABLE {temp_model_table} ( LIKE {self.model_output_tbl}
-            INCLUDING indexes);""".format(temp_model_table=temp_model_table,
-                                          unlogged_table=unlogged_table,
-                                          self=self))
-            plpy.execute("""
-            INSERT INTO {temp_model_table} SELECT * FROM {self.model_output_tbl};
-            TRUNCATE TABLE {self.model_output_tbl};
-            DROP TABLE {self.model_output_tbl};
-            """.format(temp_model_table=temp_model_table, self=self))
-            rename_table(self.schema_madlib, temp_model_table,
-                         self.model_output_tbl)
-            plpy.execute("""
-            TRUNCATE TABLE {self.model_input_tbl}, {self.current_schedule_tbl},
-            {self.weights_to_update_tbl};
-            DROP TABLE IF EXISTS {self.model_input_tbl}, {self.current_schedule_tbl},
-            {self.weights_to_update_tbl};""".format(self=self))
+                TRUNCATE TABLE {table};
+                DROP TABLE {table}
+            """.format(table=table))
