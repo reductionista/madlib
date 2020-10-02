@@ -372,7 +372,7 @@ def query_custom_functions_map(object_table, custom_fn_names):
     Args:
         @param: object_table    Name of the object table
         @param: custom_fn_names List of custom function read from compile_param
-                                if custom function exisst in compile_params,
+                                if custom function exist in compile_params,
                                     expected list length >= 1
                                 else,
                                     an empty list is passed in

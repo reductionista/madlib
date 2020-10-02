@@ -163,7 +163,9 @@ class FitMultipleModel(object):
         self.object_table = self.fit_validator_train.object_table
         self.metrics_iters = []
         self.object_map_col = 'object_map'
-        if self.object_table is not None:
+        if self.object_table is None:
+            self.custom_fn_object_map=None
+        else:
             self.populate_object_map()
 
         self.original_cuda_env = None
@@ -362,9 +364,7 @@ class FitMultipleModel(object):
 
         if len(custom_fn_names) > 0:
             # Pass only unique custom_fn_names to query from object table
-            custom_fn_object_map = query_custom_functions_map(self.object_table, list(set(custom_fn_names)))
-            for mst_idx in custom_fn_mst_idx:
-                self.msts[mst_idx][self.object_map_col] = custom_fn_object_map
+            self.custom_fn_object_map = query_custom_functions_map(self.object_table, list(set(custom_fn_names)))
 
     def init_schedule_tbl(self):
         self.prev_dist_key_col = '__prev_dist_key__'
@@ -505,12 +505,6 @@ class FitMultipleModel(object):
 
             DEBUG.plpy.info("Initializing index {} mst {}".format(index, mst['mst_key']))
 
-            metrics_list = get_metrics_from_compile_param(
-                mst[self.compile_params_col])
-            is_metrics_specified = True if metrics_list else False
-            metrics_type = 'ARRAY{0}'.format(
-                metrics_list) if is_metrics_specified else 'NULL'
-
             num_dist_keys = len(self.dist_keys)
             if not mst['mst_key'] in initialized_msts:
                 if index < num_dist_keys:
@@ -561,9 +555,9 @@ class FitMultipleModel(object):
                 {self.fit_params_col} TEXT,
                 model_type TEXT,
                 model_size DOUBLE PRECISION,
+                metrics_type TEXT[],
                 loss_type TEXT,
                 metrics_elapsed_time DOUBLE PRECISION[],
-                metrics_type TEXT[],
                 training_metrics_final DOUBLE PRECISION,
                 training_loss_final DOUBLE PRECISION,
                 training_metrics DOUBLE PRECISION[],
@@ -576,13 +570,6 @@ class FitMultipleModel(object):
 
         plpy.execute(info_table_create_query)
 
-        # TODO:  not sure how to merge this... somehow we need to get the
-        #  compile params from the model selection table, probably need to
-        #  do an extra query for that, just returning that one column?
-        #  Unless we can parse the loss out from compile params with SQL...
-        loss_type = get_loss_from_compile_param(mst[self.compile_params_col])
-        loss_type = loss_type if loss_type else 'NULL'
-
         info_table_insert_query = """
             INSERT INTO {self.model_info_tbl} (
                 {self.mst_key_col},
@@ -590,9 +577,7 @@ class FitMultipleModel(object):
                 {self.compile_params_col},
                 {self.fit_params_col},
                 model_type,
-                model_size,
-                metrics_type,
-                loss_type
+                model_size
             )
             SELECT
                 m.{self.mst_key_col},
@@ -600,15 +585,11 @@ class FitMultipleModel(object):
                 m.{self.compile_params_col},
                 m.{self.fit_params_col},
                 '{model_type}',
-                LENGTH(o.{self.model_weights_col})/1024,
-                {metrics_type},
-                '{loss_type}'
+                LENGTH(o.{self.model_weights_col})/1024
             FROM {self.model_selection_table} m JOIN {self.model_output_tbl} o
                 USING ({self.mst_key_col})
         """.format(self=self,
-                   model_type='madlib_keras',
-                   metrics_type=metrics_type,
-                   loss_type=loss_type)
+                   model_type='madlib_keras')
 
         plpy.execute(info_table_insert_query)
 
@@ -620,13 +601,17 @@ class FitMultipleModel(object):
                 mst[self.compile_params_col])
             metrics_type = 'ARRAY{0}'.format(
                 metrics_list) if metrics_list else 'NULL'
+            loss_type = get_loss_from_compile_param(mst[self.compile_params_col])
+            loss_type = loss_type if loss_type else 'NULL'
 
             plpy.execute("""
-                UPDATE {self.model_info_tbl}
-                    SET metrics_type = {metrics_type}
-                    WHERE {self.mst_key_col} = {{{self.mst_key_col}}}
+                UPDATE {self.model_info_tbl} SET
+                    metrics_type = {metrics_type},
+                    loss_type = '{loss_type}'
+                WHERE {self.mst_key_col} = {{{self.mst_key_col}}}
             """.format(self=self,
-                       metrics_type=metrics_type
+                       metrics_type=metrics_type,
+                       loss_type=loss_type
               ).format(**mst))
 
         DEBUG.print_timing('init_model_output_and_info')
@@ -841,8 +826,9 @@ class FitMultipleModel(object):
 #TODO: maybe this and all other repetitive queries should be saved
 #        as a prepared statement?  (Might be faster?)
 
-        udf_query = """
-            
+        udf_query = plpy.prepare("""
+            CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
+            SELECT
                 model_in.{self.mst_key_col},
                 CASE WHEN src.{self.dist_key_col} IS NULL
                 THEN
@@ -867,7 +853,8 @@ class FitMultipleModel(object):
                         model_in.{self.model_weights_col}::BYTEA,
                         {is_final_training_call}::BOOLEAN,
                         {use_caching}::BOOLEAN,
-                        {self.mst_weights_tbl}.{self.object_map_col}::BYTEA
+                        {self.mst_weights_tbl}.{self.object_map_col}::BYTEA,
+                        $1::BYTEA
                     )
                 END::BYTEA AS {self.model_weights_col},
                 model_in.{self.model_arch_col},
@@ -893,11 +880,12 @@ class FitMultipleModel(object):
                        where_clause=where_clause,
                        where=where,
                        self=self
-                       )
-        plpy.info("Got here")
-        plpy.info("UDF query: {}".format(udf_query))
+                       ),
+            ['BYTEA']
+        )
+        # TODO:  fix debug module so it can handle plans, not just text, for a param
+        plpy.execute(udf_query, [self.custom_fn_object_map])
         DEBUG.print_timings("|_udf_time_|{}|".format(time.time() - udf_time))
-        DEBUG.plpy.execute(udf_query)
 
         res = plpy.execute("""
             SELECT count(*)
