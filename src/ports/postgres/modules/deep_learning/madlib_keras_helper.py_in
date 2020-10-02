@@ -241,12 +241,10 @@ def query_dist_keys(source_table, dist_key_col):
 
 def query_weights(model_output_table, model_weights_col, mst_key_col, mst_key):
     mlp_weights_query = """
-                        DELETE FROM {model_output_table} WHERE {model_weights_col} IS NULL;
                         SELECT {model_weights_col}, {mst_key_col}
                         FROM {model_output_table}
                         WHERE {mst_key_col} = {mst_key}
                         """.format(**locals())
-
     res = plpy.execute(mlp_weights_query)
     return res[0][model_weights_col]
 
