@@ -143,6 +143,7 @@ class FitMultipleModel(object):
         self.segments_per_host = get_segments_per_host()
         self.cached_source_table = unique_string('cached_source_table')
         self.metrics_elapsed_time_offset = metrics_elapsed_time_offset
+        self.hop_plan_tbl = unique_string('hop_plan')
         if self.use_gpus:
             self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
                 self.schema_madlib, self.segments_per_host, self.module_name)
@@ -738,7 +739,7 @@ class FitMultipleModel(object):
             if self.validation_table:
                 self.update_info_table(mst, False)
     
-    def run_training(self, is_very_first_hop):
+    def run_training(self, hop, is_very_first_hop):
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
         # (creates a slice which stays until the session is disconnected)
         # or minimize writing queries that generate plans with Motions (creating
@@ -751,11 +752,8 @@ class FitMultipleModel(object):
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
 
-        start_time = time.time()
-        DEBUG.start_timing("end_mst_hop")
-
-        self.hop_plan_tbl = unique_string('hop_plan')
         if hop > 0:
+            DEBUG.start_timing("end_mst_hop")
             hop_query = """
                 CREATE TABLE {self.model_input_tbl} AS
                     SELECT o.{self.mst_key_col},
@@ -771,13 +769,13 @@ class FitMultipleModel(object):
 
             DEBUG.plpy.execute(hop_query)
 
-            DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
-
             DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
-            truncate_time = time.time()
             self.truncate_and_drop(self.model_output_tbl)
-            DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
+            DEBUG.plpy.execute(hop_query)
+            self.truncate_and_drop(self.hop_plan_tbl)
+            DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
+            DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
         else:
             # Skip hop if it's the first in an iteration, just rename
             plpy.execute("""
@@ -785,16 +783,8 @@ class FitMultipleModel(object):
                     RENAME TO {self.model_input_tbl}
             """.format(self=self))
  
-        DEBUG.plpy.execute(hop_query)
-        self.truncate_and_drop(self.hop_plan_tbl)
-
-        DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
-
-        DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
-
         truncate_time = time.time()
         self.truncate_and_drop(self.model_output_tbl)
-
         DEBUG.print_timings("|_truncate_output_time_|{}|".format(time.time() - truncate_time))
 
         use_gpus = self.use_gpus if self.use_gpus else False
@@ -803,7 +793,6 @@ class FitMultipleModel(object):
         indep_var = mb_indep_var_col
         source_table = self.source_table
         where_clause = """ 
-                            
             WHERE model_in.{self.mst_key_col} IS NOT NULL
                 AND model_in.{dist_key_col} <= {self.max_dist_key}
             """.format(self=self)
@@ -811,7 +800,7 @@ class FitMultipleModel(object):
         if self.use_caching:
             # Caching populates the independent_var and dependent_var into the cache on the very first hop
             # For the very_first_hop, we want to run the transition function on all segments, including
-            # the one's where the mst_key is NULL (for #mst < #seg), therefore we remove the NOT NULL check
+            # the ones where the mst_key is NULL (for #mst < #seg), therefore we remove the NOT NULL check
             # on mst_key. Once the cache is populated, with the independent_var and dependent_var values
             # for all subsequent hops pass independent_var and dependent_var as NULL's and use a dummy src
             # table to join for referencing the dist_key
@@ -827,10 +816,19 @@ class FitMultipleModel(object):
                 indep_var = 'NULL'
                 source_table = self.cached_source_table
             if is_very_first_hop or self.is_final_training_call:
-                # MERGE:  wasn't sure quite how to merge this with caching code.
-                #  do we need the 2nd part of the WHERE clause here, the first, or neither?
-                #  (2nd part didn't exist in caching branch)
-                where_clause = ""
+                # For the first hop, we want to load data on all segments
+                #  that have data, even on the segments where there is no
+                #  model being trained. So we drop the first where condition,
+                #  which filters out segments with no models on them.  But
+                #  keep the second where condition which filters out any
+                #  extra models that aren't being trained this hop.  This
+                #  ensures that we will call fit_transition() exactly once
+                #  on each segment where data is distributed... regardles
+                #  of whether num_models > num_segs or num_models < num_segs
+                #  Same logic for the final training call, where we need to
+                #  clear the cache, and don't want to do that more than once
+                #  on each segment.
+                where_clause = "model_in.{dist_key_col} <= {self.max_dist_key}"
 
         udf_time = time.time()
 
@@ -843,8 +841,8 @@ class FitMultipleModel(object):
         else:
             plpy.error("No rows in output of UDA!")
 
-#TODO: maybe this and all other repetitive queries should be saved
-#        as a prepared statement?  (Might be faster?)
+#TODO: prepare this statement once, then just fill in the params with execute()
+#      on all the rest of the hops / iterations
 
         udf_query = plpy.prepare("""
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
@@ -892,18 +890,15 @@ class FitMultipleModel(object):
                        dep_shape_col=dep_shape_col,
                        ind_shape_col=ind_shape_col,
                        is_final_training_call=self.is_final_training_call,
-#                      is_final_iteration=True,   # MERGE:  had to choose above line or this one while merging.  Why?
                        use_caching=self.use_caching,
                        dist_key_col=dist_key_col,
                        use_gpus=use_gpus,
                        source_table=source_table,
                        where_clause=where_clause,
-                       where=where,
                        self=self
                        ),
             ['BYTEA']
         )
-        # TODO:  fix debug module so it can handle plans, not just text, for a param
         plpy.execute(udf_query, [self.custom_fn_object_map])
         DEBUG.print_timings("|_udf_time_|{}|".format(time.time() - udf_time))
 

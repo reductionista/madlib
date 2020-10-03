@@ -153,7 +153,7 @@ $$
     fit_mult.source_tbl = source_table
     fit_mult.init_model_output_tbl()
 
-    if fit_mult.run_training(0):
+    if fit_mult.run_training(0, True):
         err_msg = None
     else:
         err_msg = 'FitMultiple.run_training(0) returned False'
