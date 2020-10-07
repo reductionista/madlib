@@ -348,7 +348,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     reset_cuda_env(original_cuda_env)
 
 def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
-                        use_gpus, accessible_gpus_for_seg, mst_filter=''):
+                        accessible_gpus_for_seg, mst_filter=''):
     """
         If warm_start is True, return back initial weights from model table.
         If warm_start is False, first try to get the weights from model_arch
@@ -363,15 +363,14 @@ def get_initial_weights(model_table, model_arch, serialized_weights, warm_start,
         will only be used for segment nodes.
         @args:
             @param model_table: Output model table passed in to fit.
-            @param model_arch_result: Dict containing model architecture info.
+            @param model_arch: Dict containing model architecture info.
             @param warm_start: Boolean flag indicating warm start or not.
     """
     if is_platform_pg():
+        # Use GPU's if they are enabled
         _ = get_device_name_and_set_cuda_env(accessible_gpus_for_seg[0], None)
     else:
-        # TODO: use_gpus is unused in this function apparently.  Also,
-        #  if we never use gpu's on gpdb, why do we use them on postgres?
-        #  Something doesn't seem right here
+        # We are on master, so never use GPU's
         _ = get_device_name_and_set_cuda_env(0, None)
 
     if warm_start:
