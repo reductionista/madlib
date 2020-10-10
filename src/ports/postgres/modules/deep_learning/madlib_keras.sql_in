@@ -1793,7 +1793,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     segments_per_host           INTEGER,
     images_per_seg              INTEGER[],
     use_gpus                    BOOLEAN,
-    accessible_gpus_for_seg                INTEGER[],
+    accessible_gpus_for_seg     INTEGER[],
     prev_serialized_weights     BYTEA,
     is_final_iteration          BOOLEAN,
     custom_function_map        BYTEA
@@ -2068,7 +2068,7 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.internal_keras_eval_transition(
     segments_per_host                  INTEGER,
     images_per_seg                     INTEGER[],
     use_gpus                           BOOLEAN,
-    accessible_gpus_for_seg                       INTEGER[],
+    accessible_gpus_for_seg            INTEGER[],
     is_final_iteration                 BOOLEAN,
     custom_function_map                BYTEA
 ) RETURNS REAL[3] AS $$
