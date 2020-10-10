@@ -868,7 +868,7 @@ class FitMultipleModel(object):
                 THEN
                     model_in.{self.model_weights_col}
                 ELSE
-                    {self.schema_madlib}.fit_transition(
+                    {self.schema_madlib}.fit_transition_multiple_model(
                         NULL,
                         {mb_dep_var_col},
                         {mb_indep_var_col},
@@ -887,7 +887,7 @@ class FitMultipleModel(object):
                         model_in.{self.model_weights_col}::BYTEA,
                         {self.is_final_training_call}::BOOLEAN,
                         {use_caching}::BOOLEAN,
-                        {self.model_input_tbl}.{self.object_map_col}::BYTEA
+                        model_in.{self.object_map_col}::BYTEA
                     )
                 END::BYTEA AS {self.model_weights_col},
                 model_in.{self.model_arch_col},
