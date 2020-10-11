@@ -124,7 +124,6 @@ class FitMultipleModel(object):
         self.use_gpus = use_gpus
         self.segments_per_host = get_segments_per_host()
         self.cached_source_table = unique_string('cached_source_table')
-        self.hop_plan_tbl = unique_string('hop_plan')
         if self.use_gpus:
             self.accessible_gpus_for_seg = get_accessible_gpus_for_seg(
                 self.schema_madlib, self.segments_per_host, self.module_name)
@@ -772,6 +771,7 @@ class FitMultipleModel(object):
         # that was used for initializing GPU memory.
 
         DEBUG.start_timing("run_training")
+        DEBUG.start_timing("hop")
         if hop > 0:
             hop_query = """
                 CREATE TABLE {self.model_input_tbl} AS
@@ -788,9 +788,8 @@ class FitMultipleModel(object):
             """.format(self=self)
 
             DEBUG.plpy.execute(hop_query)
-            self.truncate_and_drop(self.hop_plan_tbl)
 
-            DEBUG.print_timings("|_hop_time_|{}|".format(time.time() - start_time))
+            DEBUG.print_timing("hop")
             DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
             DEBUG.start_timing("truncate_output_time")
@@ -859,7 +858,7 @@ class FitMultipleModel(object):
 #TODO: prepare this statement once, then just fill in the params with execute()
 #      on all the rest of the hops / iterations
 
-        DEBUG.start_timing("udf_time")
+        DEBUG.start_timing("udf")
         udf_query = plpy.prepare("""
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
             SELECT
@@ -893,6 +892,7 @@ class FitMultipleModel(object):
                 model_in.{self.model_arch_col},
                 model_in.{self.compile_params_col},
                 model_in.{self.fit_params_col},
+                model_in.{self.object_map_col},
                 model_in.{self.dist_key_col}
             FROM {self.model_input_tbl} model_in
                 LEFT JOIN {source_table} src
@@ -911,7 +911,7 @@ class FitMultipleModel(object):
                        )
         )
         plpy.execute(udf_query)
-        DEBUG.print_timing("udf_time")
+        DEBUG.print_timing("udf")
 
         res = plpy.execute("""
             SELECT count(*)
@@ -924,9 +924,9 @@ class FitMultipleModel(object):
 
         plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
 
-        DEBUG.print_timing("truncate_input_time")
+        DEBUG.start_timing("truncate_input")
         self.truncate_and_drop(self.model_input_tbl)
-        DEBUG.print_timing("truncate_input_time")
+        DEBUG.print_timing("truncate_input")
         DEBUG.print_timing("run_training")
 
     def truncate_and_drop(self, table):

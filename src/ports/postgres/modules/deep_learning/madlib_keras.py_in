@@ -499,6 +499,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         return state
     SD = kwargs['SD']
 
+    trans_enter_time = time.time()
     plpy.info("Entering fit transition...")
 
     trans_exit_time = None
