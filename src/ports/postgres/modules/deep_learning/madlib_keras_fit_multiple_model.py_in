@@ -301,13 +301,13 @@ class FitMultipleModel(object):
             images_per_seg = self.images_per_seg_valid
             self.info_str += "\n\tValidation set after iteration {0}:".format(epoch)
         for mst in self.msts:
-            DEBUG.start_timing('eval_query_weights_time')
+            DEBUG.start_timing('eval_query_weights')
             weights = query_weights(self.model_output_tbl, self.model_weights_col,
                                     self.mst_key_col, mst[self.mst_key_col])
-            DEBUG.print_timing('eval_query_weights_time')
-            DEBUG.start_timing('eval_get_model_arch_time')
+            DEBUG.print_timing('eval_query_weights')
+            DEBUG.start_timing('eval_get_model_arch_weights')
             model_arch = get_model_arch(self.model_arch_table, mst[self.model_id_col])
-            DEBUG.print_timing('eval_get_model_arch_weights_time')
+            DEBUG.print_timing('eval_get_model_arch_weights')
             DEBUG.start_timing('eval_compute_loss_and_metrics')
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
@@ -320,7 +320,7 @@ class FitMultipleModel(object):
                 images_per_seg,
                 [], [], epoch, True,
                 mst[self.object_map_col],
-                self.model_output_table,
+                self.model_output_tbl,
                 mst[self.mst_key_col])
             DEBUG.print_timing('eval_compute_loss_and_metrics')
             mst_metric_eval_time[mst[self.mst_key_col]] \
@@ -773,6 +773,7 @@ class FitMultipleModel(object):
         DEBUG.start_timing("run_training")
         DEBUG.start_timing("hop")
         if hop > 0:
+            DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
             hop_query = """
                 CREATE TABLE {self.model_input_tbl} AS
                     SELECT o.{self.mst_key_col},
@@ -810,7 +811,6 @@ class FitMultipleModel(object):
         source_table = self.source_table
         where_clause = """ 
             WHERE model_in.{self.mst_key_col} IS NOT NULL
-                AND model_in.{self.dist_key_col} <= {self.max_dist_key}
             """.format(self=self)
 
         if self.use_caching:
@@ -834,17 +834,10 @@ class FitMultipleModel(object):
             if is_very_first_hop or self.is_final_training_call:
                 # For the first hop, we want to load data on all segments
                 #  that have data, even on the segments where there is no
-                #  model being trained. So we drop the first where condition,
-                #  which filters out segments with no models on them.  But
-                #  keep the second where condition which filters out any
-                #  extra models that aren't being trained this hop.  This
-                #  ensures that we will call fit_transition() exactly once
-                #  on each segment where data is distributed... regardles
-                #  of whether num_models > num_segs or num_models < num_segs
-                #  Same logic for the final training call, where we need to
-                #  clear the cache, and don't want to do that more than once
-                #  on each segment.
-                where_clause = "model_in.{self.dist_key_col} <= {self.max_dist_key}"
+                #  model being trained. So we drop the where clause,
+                #  which filters out segments with no models on them for
+                #  hop > 1
+                where_clause = ""
 
         res = plpy.execute("""
             SELECT count(*)
@@ -863,7 +856,7 @@ class FitMultipleModel(object):
             CREATE {self.unlogged_table} TABLE {self.model_output_tbl} AS
             SELECT
                 model_in.{self.mst_key_col},
-                CASE WHEN src.{self.dist_key_col} IS NULL
+                CASE WHEN model_in.{self.dist_key_col} > {self.max_dist_key}
                 THEN
                     model_in.{self.model_weights_col}
                 ELSE
