@@ -833,7 +833,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             $MAD${model_arch}$MAD$,
                                             {weights},
                                             {compile_params},
-                                            {dist_key_col},
+                                            __table__.{dist_key_col},
                                             ARRAY{dist_key_mapping},
                                             {gp_segment_id_col},
                                             {segments_per_host},
@@ -851,6 +851,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
         mst_key_col = ModelSelectionSchema.MST_KEY
         mult_sql = ', {model_table} AS __mt__ WHERE {mst_key_col} = {mst_key}'.format(**locals())
         custom_map_var = '$1'
+        plpy.info(eval_sql)
         evaluate_query = plpy.prepare(eval_sql.format(**locals()), ["bytea"])
         res = plpy.execute(evaluate_query, [custom_function_map])
     else:
