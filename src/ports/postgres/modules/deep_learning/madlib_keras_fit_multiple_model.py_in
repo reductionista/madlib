@@ -430,7 +430,7 @@ class FitMultipleModel(object):
                     o.{self.model_arch_col},
                     m.{self.compile_params_col},
                     m.{self.fit_params_col},
-                    NULL AS {self.object_map_tbl}, -- Fill in later
+                    NULL AS {self.object_map_col}, -- Fill in later
                     s.{self.dist_key_col}
                 FROM {self.schedule_tbl} s
                     JOIN {self.model_selection_table} m
@@ -495,7 +495,7 @@ class FitMultipleModel(object):
         """.format(self=self))
        
         if res:
-            initialized_msts = set([ row['mst_key'] for row in res ])
+            initialized_msts = set([ row['mst_keys'] for row in res ])
         else:
             initialized_msts = set()
 
