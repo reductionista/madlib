@@ -17,6 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 import numpy as np
+import plpy
 from utilities.utilities import _assert
 
 # TODO
@@ -144,6 +145,7 @@ def deserialize_as_nd_weights(model_weights_serialized, model_shapes):
         return None
 
     i, j, model_weights = 0, 0, []
+    plpy.info("Length of serialized weights: {}".format(len(model_weights_serialized)))
     model_weights_serialized = np.fromstring(model_weights_serialized, dtype=np.float32)
 
     total_model_shape = \
