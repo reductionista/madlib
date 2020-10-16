@@ -535,6 +535,7 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
 
     # Aggregating number of images, loss and accuracy
     agg_image_count += len(x_train)
+    SD['agg_image_count'] = agg_image_count
     total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
                                                       images_per_seg)
     is_last_row = agg_image_count == total_images
@@ -545,13 +546,16 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         if is_final_iteration or is_multiple_model:
             SD_STORE.clear_SD(SD)
             clear_keras_session(sess)
+            del SD['agg_image_count']  # TODO:  move to SD_STATE
 
     trans_exit_time = time.time()
     DEBUG.print_timings("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
 
-    if return_state is None:
-        plpy.info("return_state is None in fit_transition!")
     SD['trans_exit_time'] = trans_exit_time
+    if return_state is None:
+        plpy.info("agg_image_count = {}, returning NULL for weights".format(agg_image_count))
+    else:
+        plpy.info("agg_image_count = {}, returning weights with len = {}".format(agg_image_count, len(return_state)))
     return return_state
 
 def fit_multiple_transition_caching(state, dependent_var, independent_var, dependent_var_shape,
@@ -662,10 +666,11 @@ def get_state_to_return(segment_model, is_last_row, is_multiple_model, agg_image
     """
     if is_multiple_model:
         updated_model_weights = segment_model.get_weights()
-        return madlib_keras_serializer.serialize_nd_weights(updated_model_weights)\
-            if is_last_row else None
-
-    if is_last_row:
+        if is_last_row:
+            new_state = madlib_keras_serializer.serialize_nd_weights(updated_model_weights)
+        else:
+            new_state = None
+    elif is_last_row:
         updated_model_weights = segment_model.get_weights()
         updated_model_weights = [total_images * w for w in updated_model_weights]
         new_state = madlib_keras_serializer.serialize_state_with_nd_weights(

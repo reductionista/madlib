@@ -913,9 +913,14 @@ class FitMultipleModel(object):
         if res:
             DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
         else:
-            plpy.error("No rows in output of UDA!")
+            plpy.error("No rows in output of UDF!")
 
         plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
+
+        if res:
+            DEBUG.plpy.info("rows in model_output table after DELETE: {}".format(res[0]['count']))
+        else:
+            plpy.error("No non-NULL weights returned from UDF!")
 
         DEBUG.start_timing("truncate_input")
         self.truncate_and_drop(self.model_input_tbl)
