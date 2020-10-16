@@ -660,14 +660,16 @@ def get_state_to_return(segment_model, is_last_row, is_multiple_model, agg_image
     :param total_images: total images per segment
     :return:
     """
-    if not is_multiple_model or is_last_row:
+    if is_multiple_model:
         updated_model_weights = segment_model.get_weights()
-        if is_multiple_model:
-            new_state = madlib_keras_serializer.serialize_nd_weights(updated_model_weights)
-        else:
-            updated_model_weights = [total_images * w for w in updated_model_weights]
-            new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
-                agg_image_count, updated_model_weights)
+        return madlib_keras_serializer.serialize_nd_weights(updated_model_weights)\
+            if is_last_row else None
+
+    if is_last_row:
+        updated_model_weights = segment_model.get_weights()
+        updated_model_weights = [total_images * w for w in updated_model_weights]
+        new_state = madlib_keras_serializer.serialize_state_with_nd_weights(
+            agg_image_count, updated_model_weights)
     else:
         new_state = float(agg_image_count)
 
