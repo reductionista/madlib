@@ -155,11 +155,11 @@ class FitMultipleModel(object):
         # because we call truncate on the model output table while training.
         # If the query gets aborted, we need to make sure that the user passed
         # model output table can be recovered.
-        self.original_model_output_tbl = model_output_table
-        if self.original_model_output_tbl:
-            self.model_info_tbl = add_postfix(self.original_model_output_tbl, '_info')
+        self.original_model_output_table = model_output_table
+        if self.original_model_output_table:
+            self.model_info_tbl = add_postfix(self.original_model_output_table, '_info')
             self.model_summary_table = add_postfix(
-                self.original_model_output_tbl, '_summary')
+                self.original_model_output_table, '_summary')
 	else:
 	    plpy.error("Must specify an output table.")
 
@@ -167,7 +167,7 @@ class FitMultipleModel(object):
         self.warm_start = bool(warm_start)
 
         self.fit_validator_train = FitMultipleInputValidator(
-            self.source_table, self.validation_table, self.original_model_output_tbl,
+            self.source_table, self.validation_table, self.original_model_output_table,
             self.model_selection_table, self.model_selection_summary_table,
             mb_dep_var_col, mb_indep_var_col, self.num_iterations,
             self.model_info_tbl, self.mst_key_col, self.model_arch_table_col,
@@ -267,7 +267,7 @@ class FitMultipleModel(object):
         :return:
         """
         drop_query = "DROP TABLE IF EXISTS {}".format(
-            self.original_model_output_tbl)
+            self.original_model_output_table)
         plpy.execute(drop_query)
         rename_table(self.schema_madlib, self.model_output_tbl,
                      self.original_model_output_tbl)
@@ -456,7 +456,7 @@ class FitMultipleModel(object):
                 FROM {self.schedule_tbl} s
                     JOIN {self.model_selection_table} m
                         USING ({self.mst_key_col})
-                    JOIN {self.original_model_output_tbl} o
+                    JOIN {self.original_model_output_table} o
                         USING ({self.mst_key_col})
         """.format(self=self)
         DEBUG.plpy.execute(load_warm_start_weights_query)
