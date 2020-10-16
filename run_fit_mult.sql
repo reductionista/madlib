@@ -6,5 +6,5 @@ SELECT madlib_keras_fit_multiple_model(
     'places10_train_mult_model_fromscratch',
     'mst_table_places10',
     1,
-    FALSE -- use_gpus
+    TRUE -- use_gpus
 );

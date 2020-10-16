@@ -270,7 +270,7 @@ class FitMultipleModel(object):
             self.original_model_output_table)
         plpy.execute(drop_query)
         rename_table(self.schema_madlib, self.model_output_tbl,
-                     self.original_model_output_tbl)
+                     self.original_model_output_table)
 
     def train_multiple_model(self):
         total_msts = len(self.all_mst_keys)
