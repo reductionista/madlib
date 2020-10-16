@@ -131,7 +131,8 @@ CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
     use_gpus                    BOOLEAN,
     accessible_gpus_for_seg     INTEGER[],
     prev_serialized_weights     BYTEA,
-    is_final_iteration          BOOLEAN,
+    is_final_training_call      BOOLEAN,
+    use_caching                 BOOLEAN,
     custom_function_map         BYTEA
 ) RETURNS BYTEA AS
 $$
@@ -145,15 +146,19 @@ END
 $$ LANGUAGE plpgSQL;
 
 CREATE OR REPLACE FUNCTION test_run_training(
-    source_table TEXT
+    source_table TEXT,
+    iteration INTEGER,
+    first_hop BOOLEAN,
+    is_final_training_call BOOLEAN
 ) RETURNS TEXT AS
 $$
     fit_mult = GD['fit_mult']
 
     fit_mult.source_tbl = source_table
     fit_mult.init_model_output_tbl()
+    fit_mult.is_final_training_call = is_final_training_call
 
-    if fit_mult.run_training(0, True):
+    if fit_mult.run_training(iteration, first_hop):
         err_msg = None
     else:
         err_msg = 'FitMultiple.run_training(0) returned False'
@@ -209,5 +214,25 @@ SELECT * FROM current_schedule ORDER BY __dist_key__;
 
 -- Add some assert's here
 
--- Test an actual hop
-SELECT test_run_training('iris_data_packed');
+-- Test very first hop of first iteration
+SELECT test_run_training('iris_data_packed', 0, True, False);
+
+-- Should just be a table rename
+   -- SELECT assert(model_input_tbl == model_output_tbl)
+
+-- Session should get initialized for ALL segments, even ones with NULL model weights
+   -- [ Assert 'session' and 'model' have been saved in SD, for all  ]
+
+-- Test an ordinary hop (should clear session on segments with models, and rotate mst's)
+SELECT test_run_training('iris_data_packed', 0, False, False);
+
+-- Assert 
+
+-- Test first hop of another iteration (should be a table rename, but re-use same session):
+SELECT test_run_training('iris_data_packed', 5, True, False);
+-- Assert model_input = model_output
+
+-- Test a final training hop (should clear session on ALL segments, even those with NULL model_weights this round)
+SELECT test_run_training('iris_data_packed', 2, False, True);
+
+-- Assert 

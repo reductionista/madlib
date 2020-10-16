@@ -1805,7 +1805,7 @@ PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
     try:
         return madlib_keras.fit_transition(**globals())
     except e:
-        plpy.info(traceback.format_tb(exc_info()[2]))
+        e.inner_traceback = traceback.format_tb(exc_info()[2]))
         raise e
 $$ LANGUAGE plpythonu
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');
