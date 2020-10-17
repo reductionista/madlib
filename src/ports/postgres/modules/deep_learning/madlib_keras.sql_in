@@ -1799,13 +1799,17 @@ CREATE OR REPLACE FUNCTION MADLIB_SCHEMA.fit_transition(
     custom_function_map        BYTEA
 ) RETURNS BYTEA AS $$
 PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
-    from format import traceback
+    import traceback
     from sys import exc_info
     import plpy
     try:
         return madlib_keras.fit_transition(**globals())
-    except e:
-        e.inner_traceback = traceback.format_tb(exc_info()[2]))
+    except:
+        e = plpy.SPIError('TransitionFunctionPythonError')
+        ex = exc_info()
+        tb = traceback.format_tb(ex[2])
+        # Todo:  fill in with better values
+        e.spi_data = (0, tb, None, None, -1);
         raise e
 $$ LANGUAGE plpythonu
 m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `NO SQL', `');

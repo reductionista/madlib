@@ -51,9 +51,9 @@ from utilities.utilities import rename_table
 import utilities.debug as DEBUG
 
 DEBUG.timings_enabled = True
-DEBUG.mst_keys_enabled = True
-DEBUG.plpy_execute_enabled = True
-DEBUG.plpy_info_enabled = True
+DEBUG.mst_keys_enabled = False
+DEBUG.plpy_execute_enabled = False
+DEBUG.plpy_info_enabled = False
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
@@ -183,10 +183,10 @@ class FitMultipleModel(object):
         self.schedule_tbl = unique_string(desp='schedule')
 
         self.dist_keys = query_dist_keys(self.source_table, self.dist_key_col)
-        plpy.info("init_dist_keys = {0}".format(self.dist_keys))
+        DEBUG.plpy.info("init_dist_keys = {0}".format(self.dist_keys))
         self.max_dist_key = sorted(self.dist_keys)[-1]
-        plpy.info("sorted_dist_keys = {0}".format(sorted(self.dist_keys)))
-        plpy.info("max_dist_key = {0}".format(self.max_dist_key))
+        DEBUG.plpy.info("sorted_dist_keys = {0}".format(sorted(self.dist_keys)))
+        DEBUG.plpy.info("max_dist_key = {0}".format(self.max_dist_key))
         self.extra_dist_keys = []
 
         num_msts = len(self.msts)
@@ -533,7 +533,7 @@ class FitMultipleModel(object):
                 dist_key = self.dist_keys[index]
             else:  # For models that won't be trained on first hop
                 dist_key = self.extra_dist_keys[index - num_dist_keys]
-            DEBUG.plpy.info("Calling get_initial_weights")
+
             model_arch = get_model_arch(self.model_arch_table, mst[self.model_id_col])
             serialized_weights = get_initial_weights(None, model_arch, None, False,
                                                      self.accessible_gpus_for_seg)
@@ -771,9 +771,9 @@ class FitMultipleModel(object):
         # that was used for initializing GPU memory.
 
         DEBUG.start_timing("run_training")
-        DEBUG.start_timing("hop")
         if hop > 0:
             DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
+            DEBUG.start_timing("hop")
             hop_query = """
                 CREATE TABLE {self.model_input_tbl} AS
                     SELECT o.{self.mst_key_col},
@@ -846,7 +846,7 @@ class FitMultipleModel(object):
         if res:
             DEBUG.plpy.info("rows in model_input table: {}".format(res[0]['count']))
         else:
-            plpy.error("No rows in output of UDA!")
+            DEBUG.plpy.error("No rows in model_input table!")
 
 #TODO: prepare this statement once, then just fill in the params with execute()
 #      on all the rest of the hops / iterations
@@ -904,6 +904,7 @@ class FitMultipleModel(object):
                        )
         )
         plpy.execute(udf_query)
+
         DEBUG.print_timing("udf")
 
         res = plpy.execute("""

@@ -500,7 +500,6 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     SD = kwargs['SD']
 
     trans_enter_time = time.time()
-    plpy.info("Entering fit transition...")
 
     trans_exit_time = None
     if 'trans_exit_time' in SD:
@@ -552,10 +551,6 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     DEBUG.print_timings("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
 
     SD['trans_exit_time'] = trans_exit_time
-    if return_state is None:
-        plpy.info("agg_image_count = {}, returning NULL for weights".format(agg_image_count))
-    else:
-        plpy.info("agg_image_count = {}, returning weights with len = {}".format(agg_image_count, len(return_state)))
     return return_state
 
 def fit_multiple_transition_caching(state, dependent_var, independent_var, dependent_var_shape,
@@ -855,7 +850,6 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
         mst_key_col = ModelSelectionSchema.MST_KEY
         mult_sql = ', {model_table} AS __mt__ WHERE {mst_key_col} = {mst_key}'.format(**locals())
         custom_map_var = '$1'
-        plpy.info(eval_sql)
         evaluate_query = plpy.prepare(eval_sql.format(**locals()), ["bytea"])
         res = plpy.execute(evaluate_query, [custom_function_map])
     else:
@@ -864,7 +858,6 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
         custom_map_var = '$2'
         evaluate_query = plpy.prepare(eval_sql.format(**locals()), ["bytea", "bytea"])
         res = plpy.execute(evaluate_query, [serialized_weights, custom_function_map])
-        plpy.info("after: " + eval_sql)
 
 
     if res is None:
