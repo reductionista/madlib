@@ -1,3 +1,4 @@
+set search_path=udf_output, gpdb6_input, madlib;
 SELECT version() from gp_dist_random('gp_id');
 SELECT madlib.version() from gp_dist_random('gp_id');
 DROP TABLE if exists places10_train_mult_model_fromscratch, places10_train_mult_model_fromscratch_summary, places10_train_mult_model_fromscratch_info;
