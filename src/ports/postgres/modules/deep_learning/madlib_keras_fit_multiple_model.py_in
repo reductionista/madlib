@@ -687,7 +687,7 @@ class FitMultipleModel(object):
                 SELECT
                     $MAD${self.source_table}$MAD$::TEXT AS source_table,
                     {self.validation_table}::TEXT AS validation_table,
-                    $MAD${self.model_output_tbl}$MAD$::TEXT AS model,
+                    $MAD${self.original_model_output_table}$MAD$::TEXT AS model,
                     $MAD${self.model_info_tbl}$MAD$::TEXT AS model_info,
                     $MAD${dependent_varname}$MAD$::TEXT AS dependent_varname,
                     $MAD${independent_varname}$MAD$::TEXT AS independent_varname,
