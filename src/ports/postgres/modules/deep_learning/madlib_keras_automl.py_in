@@ -29,8 +29,8 @@ from utilities.control import MinWarning, SetGUC
 from madlib_keras_fit_multiple_model import FitMultipleModel
 from madlib_keras_model_selection import MstSearch, ModelSelectionSchema
 from keras_model_arch_table import ModelArchSchema
+from madlib_keras_helper import DISTRIBUTION_KEY_COLNAME
 from utilities.validate_args import table_exists, drop_tables
-
 
 class AutoMLSchema:
     BRACKET = 's'
@@ -45,6 +45,8 @@ class AutoMLSchema:
     TEMP_MST_TABLE = unique_string('temp_mst_table')
     TEMP_MST_SUMMARY_TABLE = add_postfix(TEMP_MST_TABLE, '_summary')
     TEMP_OUTPUT_TABLE = unique_string('temp_output_table')
+    TEMP_MODEL_SUMMARY_TABLE = add_postfix(TEMP_OUTPUT_TABLE, '_summary')
+    TEMP_MODEL_INFO_TABLE = add_postfix(TEMP_OUTPUT_TABLE, '_info')
     METRICS_ITERS = 'metrics_iters' # custom column
 
 
@@ -182,6 +184,7 @@ class KerasAutoML():
         self.model_id_list = sorted(list(set(model_id_list)))
         self.compile_params_grid = compile_params_grid
         self.fit_params_grid = fit_params_grid
+        self.dist_key_col = DISTRIBUTION_KEY_COLNAME
 
         MstLoaderInputValidator(
             model_arch_table=self.model_arch_table,
@@ -220,7 +223,8 @@ class KerasAutoML():
                                     CREATE TABLE {self.model_output_table}
                                     ({ModelSelectionSchema.MST_KEY} INTEGER PRIMARY KEY,
                                      {ModelArchSchema.MODEL_WEIGHTS} BYTEA,
-                                     {ModelArchSchema.MODEL_ARCH} JSON)
+                                     {ModelArchSchema.MODEL_ARCH} JSON,
+                                     {self.dist_key_col} INTEGER)
                                     """.format(self=self, ModelSelectionSchema=ModelSelectionSchema,
                                                ModelArchSchema=ModelArchSchema)
         with MinWarning('warning'):
@@ -346,13 +350,14 @@ class KerasAutoML():
                 model_training = FitMultipleModel(self.schema_madlib, self.source_table, AutoMLSchema.TEMP_OUTPUT_TABLE,
                                               AutoMLSchema.TEMP_MST_TABLE, num_iterations, self.use_gpus,
                                               self.validation_table, mcf, self.warm_start, self.name, self.description)
-            self.update_model_output_table(model_training)
-            self.update_model_output_info_table(i, model_training, initial_vals)
+                model_training.fit_multiple_model()
+            self.update_model_output_table()
+            self.update_model_output_info_table(i, initial_vals)
         self.end_training_time = self.get_current_timestamp()
         self.add_additional_info_cols(s_dict, i_dict)
         self.update_model_selection_table()
-        self.generate_model_output_summary_table(model_training)
-        self.remove_temp_tables(model_training)
+        self.generate_model_output_summary_table()
+        self.remove_temp_tables()
 
     def get_current_timestamp(self):
         """for start and end times for the chosen AutoML algorithm. Showcased in the output summary table"""
@@ -427,15 +432,14 @@ class KerasAutoML():
                                                                     configs_prune_lookup_val=configs_prune_lookup[s_val])
         plpy.execute(query)
 
-    def update_model_output_table(self, model_training):
+    def update_model_output_table(self):
         """
         Updates gathered information of a hyperband diagonal run to the overall model output table.
-        :param model_training: Fit Multiple function call object.
         """
         # updates model weights for any previously trained configs
         plpy.execute("UPDATE {self.model_output_table} a SET model_weights=" \
-                     "t.model_weights FROM {model_training.original_model_output_table} t " \
-                     "WHERE a.mst_key=t.mst_key".format(self=self, model_training=model_training))
+                     "t.model_weights FROM {a.TEMP_OUTPUT_TABLE} t " \
+                     "WHERE a.mst_key=t.mst_key".format(self=self, a=AutoMLSchema))
 
         # truncate and re-creates table to avoid memory blow-ups
         with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
@@ -446,24 +450,22 @@ class KerasAutoML():
             rename_table(self.schema_madlib, temp_model_table, self.model_output_table)
 
         # inserts any newly trained configs
-        plpy.execute("INSERT INTO {self.model_output_table} SELECT * FROM {model_training.original_model_output_table} " \
-                     "WHERE {model_training.original_model_output_table}.mst_key NOT IN " \
+        plpy.execute("INSERT INTO {self.model_output_table} SELECT * FROM {a.TEMP_OUTPUT_TABLE} " \
+                     "WHERE {a.TEMP_OUTPUT_TABLE}.mst_key NOT IN " \
                      "(SELECT mst_key FROM {self.model_output_table})".format(self=self,
-                                                                              model_training=model_training))
+                                                                              a=AutoMLSchema))
 
-    def update_model_output_info_table(self, i, model_training, initial_vals):
+    def update_model_output_info_table(self, i, initial_vals):
         """
         Updates gathered information of a hyperband diagonal run to the overall model output info table.
         :param i: outer diagonal loop iteration.
-        :param model_training: Fit Multiple function call object.
         :param initial_vals: Dictionary of initial configurations and resources as part of the initial hyperband
         schedule.
         """
         # normalizing factor for metrics_iters due to warm start
         epochs_factor = sum([n[1] for n in initial_vals.values()][::-1][:i]) # i & initial_vals args needed
         iters = plpy.execute("SELECT {AutoMLSchema.METRICS_ITERS} " \
-                             "FROM {model_training.model_summary_table}".format(AutoMLSchema=AutoMLSchema,
-                                                                                model_training=model_training))
+                             "FROM {AutoMLSchema.TEMP_MODEL_SUMMARY_TABLE}".format(AutoMLSchema=AutoMLSchema))
         metrics_iters_val = [epochs_factor+mi for mi in iters[0]['metrics_iters']] # global iteration counter
 
         validation_update_q = "validation_metrics_final=t.validation_metrics_final, " \
@@ -480,15 +482,15 @@ class KerasAutoML():
                      "training_metrics=a.training_metrics || t.training_metrics, " \
                      "training_loss=a.training_loss || t.training_loss, ".format(self=self) + validation_update_q +
                      "{AutoMLSchema.METRICS_ITERS}=a.metrics_iters || ARRAY{metrics_iters_val}::INTEGER[] " \
-                     "FROM {model_training.model_info_table} t " \
-                     "WHERE a.mst_key=t.mst_key".format(model_training=model_training, AutoMLSchema=AutoMLSchema,
+                     "FROM {AutoMLSchema.TEMP_MODEL_INFO_TABLE} t " \
+                     "WHERE a.mst_key=t.mst_key".format(AutoMLSchema=AutoMLSchema,
                                                         metrics_iters_val=metrics_iters_val))
 
         # inserts info about metrics and validation for newly trained model configs
         plpy.execute("INSERT INTO {self.model_info_table} SELECT t.*, ARRAY{metrics_iters_val}::INTEGER[] AS metrics_iters " \
-                     "FROM {model_training.model_info_table} t WHERE t.mst_key NOT IN " \
+                     "FROM {a.TEMP_MODEL_INFO_TABLE} t WHERE t.mst_key NOT IN " \
                      "(SELECT mst_key FROM {self.model_info_table})".format(self=self,
-                                                                            model_training=model_training,
+                                                                            a=AutoMLSchema,
                                                                             metrics_iters_val=metrics_iters_val))
 
     def add_additional_info_cols(self, s_dict, i_dict):
@@ -512,10 +514,9 @@ class KerasAutoML():
                      "fit_params FROM {self.model_info_table} " \
                      "ORDER BY {AutoMLSchema.LOSS_METRIC} LIMIT 1".format(self=self, AutoMLSchema=AutoMLSchema))
 
-    def generate_model_output_summary_table(self, model_training):
+    def generate_model_output_summary_table(self):
         """
         Creates and populates static values related to the AutoML workload.
-        :param model_training: Fit Multiple function call object.
         """
         create_query = plpy.prepare("""
                 CREATE TABLE {self.model_summary_table} AS
@@ -524,10 +525,10 @@ class KerasAutoML():
                     $MAD${self.validation_table}$MAD$::TEXT AS validation_table,
                     $MAD${self.model_output_table}$MAD$::TEXT AS model,
                     $MAD${self.model_info_table}$MAD$::TEXT AS model_info,
-                    (SELECT dependent_varname FROM {model_training.model_summary_table})
-                    AS dependent_varname,
-                    (SELECT independent_varname FROM {model_training.model_summary_table})
-                    AS independent_varname,
+                    (SELECT dependent_varname FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                        AS dependent_varname,
+                    (SELECT independent_varname FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                        AS independent_varname,
                     $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
                     $MAD${self.model_selection_table}$MAD$::TEXT AS model_selection_table,
                     $MAD${self.automl_method}$MAD$::TEXT AS automl_method,
@@ -535,29 +536,28 @@ class KerasAutoML():
                     $MAD${self.random_state}$MAD$::TEXT AS random_state,
                     $MAD${self.object_table}$MAD$::TEXT AS object_table,
                     {self.use_gpus} AS use_gpus,
-                    (SELECT metrics_compute_frequency FROM {model_training.model_summary_table})::INTEGER 
-                    AS metrics_compute_frequency,
+                    (SELECT metrics_compute_frequency FROM {a.TEMP_MODEL_SUMMARY_TABLE})::INTEGER 
+                        AS metrics_compute_frequency,
                     $MAD${self.name}$MAD$::TEXT AS name,
                     $MAD${self.description}$MAD$::TEXT AS description,
                     '{self.start_training_time}'::TIMESTAMP AS start_training_time,
                     '{self.end_training_time}'::TIMESTAMP AS end_training_time,
-                    (SELECT madlib_version FROM {model_training.model_summary_table}) AS madlib_version,
-                    (SELECT num_classes FROM {model_training.model_summary_table})::INTEGER AS num_classes,
-                    (SELECT class_values FROM {model_training.model_summary_table}) AS class_values,
-                    (SELECT dependent_vartype FROM {model_training.model_summary_table}) 
-                    AS dependent_vartype,
-                    (SELECT normalizing_const FROM {model_training.model_summary_table}) 
-                    AS normalizing_const
-            """.format(self=self, model_training=model_training))
+                    (SELECT madlib_version FROM {a.TEMP_MODEL_SUMMARY_TABLE}) AS madlib_version,
+                    (SELECT num_classes FROM {a.TEMP_MODEL_SUMMARY_TABLE})::INTEGER AS num_classes,
+                    (SELECT class_values FROM {a.TEMP_MODEL_SUMMARY_TABLE}) AS class_values,
+                    (SELECT dependent_vartype FROM {a.TEMP_MODEL_SUMMARY_TABLE}) 
+                        AS dependent_vartype,
+                    (SELECT normalizing_const FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                        AS normalizing_const
+            """.format(self=self, a=AutoMLSchema))
 
         with MinWarning('warning'):
             plpy.execute(create_query)
 
-    def remove_temp_tables(self, model_training):
+    def remove_temp_tables(self):
         """
         Remove all intermediate tables created for AutoML runs/updates.
-        :param model_training: Fit Multiple function call object.
         """
-        drop_tables([model_training.original_model_output_table, model_training.model_info_table,
-                     model_training.model_summary_table, AutoMLSchema.TEMP_MST_TABLE,
+        drop_tables([AutoMLSchema.TEMP_OUTPUT_TABLE, AutoMLSchema.TEMP_MODEL_INFO_TABLE,
+                     AutoMLSchema.TEMP_MODEL_SUMMARY_TABLE, AutoMLSchema.TEMP_MST_TABLE,
                      AutoMLSchema.TEMP_MST_SUMMARY_TABLE])
