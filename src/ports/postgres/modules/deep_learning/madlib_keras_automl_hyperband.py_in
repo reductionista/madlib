@@ -255,16 +255,16 @@ class AutoMLHyperband(KerasAutoML):
                 model_training = FitMultipleModel(self.schema_madlib, self.source_table, AutoMLConstants.TEMP_OUTPUT_TABLE,
                                                 AutoMLConstants.TEMP_MST_TABLE, num_iterations, self.use_gpus,
                                                 self.validation_table, mcf, self.warm_start, self.name, self.description)
-            self.update_model_output_table(model_training)
-            self.update_model_output_info_table(i, model_training, initial_vals)
+            self.update_model_output_table()
+            self.update_model_output_info_table(i, initial_vals)
 
             self.print_best_mst_so_far()
 
         self.end_training_time = get_current_timestamp(AutoMLConstants.TIME_FORMAT)
         self.add_additional_info_cols(s_dict, i_dict)
         self.update_model_selection_table()
-        self.generate_model_output_summary_table(model_training)
-        self.remove_temp_tables(model_training)
+        self.generate_model_output_summary_table()
+        self.remove_temp_tables()
 
     def mst_key_ranges_dict(self, initial_vals):
         """
@@ -342,15 +342,14 @@ class AutoMLHyperband(KerasAutoML):
                                                                     configs_prune_lookup_val=configs_prune_lookup[s_val])
         plpy.execute(query)
 
-    def update_model_output_table(self, model_training):
+    def update_model_output_table(self):
         """
         Updates gathered information of a hyperband diagonal run to the overall model output table.
-        :param model_training: Fit Multiple function call object.
         """
         # updates model weights for any previously trained configs
         plpy.execute("UPDATE {self.model_output_table} a SET model_weights=" \
-                     "t.model_weights FROM {model_training.original_model_output_table} t " \
-                     "WHERE a.mst_key=t.mst_key".format(self=self, model_training=model_training))
+                     "t.model_weights FROM {a.TEMP_OUTPUT_TABLE} t " \
+                     "WHERE a.mst_key=t.mst_key".format(self=self, a=AutoMLConstants))
 
         # truncate and re-creates table to avoid memory blow-ups
         with SetGUC("dev_opt_unsafe_truncate_in_subtransaction", "on"):
@@ -361,10 +360,10 @@ class AutoMLHyperband(KerasAutoML):
             rename_table(self.schema_madlib, temp_model_table, self.model_output_table)
 
         # inserts any newly trained configs
-        plpy.execute("INSERT INTO {self.model_output_table} SELECT * FROM {model_training.original_model_output_table} " \
-                     "WHERE {model_training.original_model_output_table}.mst_key NOT IN " \
-                     "(SELECT {ModelSelectionSchema.MST_KEY} FROM {self.model_output_table})".format(self=self,
-                                                                              model_training=model_training,
+        plpy.execute("INSERT INTO {self.model_output_table} SELECT * FROM {a.TEMP_OUTPUT_TABLE} " \
+                     "WHERE {a.TEMP_OUTPUT_TABLE}.mst_key NOT IN " \
+                     "(SELECT ModelSelectionSchema.MST_KEY_COL FROM {self.model_output_table})".format(self=self,
+                                                                              a=AutoMLConstants,
                                                                               ModelSelectionSchema=ModelSelectionSchema))
 
     def update_model_output_info_table(self, i, model_training, initial_vals):
@@ -378,8 +377,7 @@ class AutoMLHyperband(KerasAutoML):
         # normalizing factor for metrics_iters due to warm start
         epochs_factor = sum([n[1] for n in initial_vals.values()][::-1][:i]) # i & initial_vals args needed
         iters = plpy.execute("SELECT {AutoMLSchema.METRICS_ITERS} " \
-                             "FROM {model_training.model_summary_table}".format(AutoMLSchema=AutoMLConstants,
-                                                                                model_training=model_training))
+                             "FROM {AutoMLSchema.TEMP_MODEL_SUMMARY_TABLE}".format(AutoMLSchema=AutoMLConstants))
         metrics_iters_val = [epochs_factor+mi for mi in iters[0]['metrics_iters']] # global iteration counter
 
         validation_update_q = "validation_metrics_final=t.validation_metrics_final, " \
@@ -396,15 +394,15 @@ class AutoMLHyperband(KerasAutoML):
                      "training_metrics=a.training_metrics || t.training_metrics, " \
                      "training_loss=a.training_loss || t.training_loss, ".format(self=self) + validation_update_q +
                      "{AutoMLSchema.METRICS_ITERS}=a.metrics_iters || ARRAY{metrics_iters_val}::INTEGER[] " \
-                     "FROM {model_training.model_info_table} t " \
-                     "WHERE a.mst_key=t.mst_key".format(model_training=model_training, AutoMLSchema=AutoMLConstants,
+                     "FROM {AutoMLSchema.TEMP_MODEL_INFO_TABLE} t " \
+                     "WHERE a.mst_key=t.mst_key".format(AutoMLSchema=AutoMLConstants,
                                                         metrics_iters_val=metrics_iters_val))
 
         # inserts info about metrics and validation for newly trained model configs
         plpy.execute("INSERT INTO {self.model_info_table} SELECT t.*, ARRAY{metrics_iters_val}::INTEGER[] AS metrics_iters " \
-                     "FROM {model_training.model_info_table} t WHERE t.mst_key NOT IN " \
+                     "FROM {a.TEMP_MODEL_INFO_TABLE} t WHERE t.mst_key NOT IN " \
                      "(SELECT {ModelSelectionSchema.MST_KEY} FROM {self.model_info_table})".format(self=self,
-                                                                            model_training=model_training,
+                                                                            a=AutoMLConstants,
                                                                             metrics_iters_val=metrics_iters_val,
                                                                             ModelSelectionSchema=ModelSelectionSchema))
 
