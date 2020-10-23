@@ -487,8 +487,7 @@ class FitMultipleModel(object):
                                      {self.compile_params_col} TEXT,
                                      {self.fit_params_col} TEXT,
                                      {self.object_map_col} BYTEA,
-                                     {self.dist_key_col} INTEGER,
-                                     PRIMARY KEY ({self.mst_key_col}, {self.dist_key_col}))
+                                     {self.dist_key_col} INTEGER)
                                      DISTRIBUTED BY ({self.dist_key_col})
                                     """.format(self=self)
         plpy.execute(output_table_create_query)
@@ -795,7 +794,6 @@ class FitMultipleModel(object):
                         ON o.{self.dist_key_col} = s.{self.prev_dist_key_col}
                     DISTRIBUTED BY ({self.dist_key_col});
             """.format(self=self)
-
             DEBUG.plpy.execute(hop_query)
 
             DEBUG.print_timing("hop")
@@ -810,7 +808,20 @@ class FitMultipleModel(object):
                 ALTER TABLE {self.model_output_tbl}
                     RENAME TO {self.model_input_tbl}
             """.format(self=self))
- 
+
+        # The GROUP BY in the UDA query will give an error
+        #  about the model_weights column being selected
+        #  (necessary to pass through any model weights that
+        #  aren't being trained this hop) unless one of the
+        #  columns in the GROUP BY clause is a PRIMARY KEY
+        add_primary_key_query = """
+            ALTER TABLE {self.model_input_tbl}
+                ADD CONSTRAINT {self.model_input_tbl}_pkey
+                    PRIMARY KEY ({self.dist_key_col})
+        """.format(self=self)
+        plpy.execute(add_primary_key_query)
+
+
         use_gpus = self.use_gpus if self.use_gpus else False
         ind_shape_col = self.ind_shape_col
         dep_shape_col = self.dep_shape_col
@@ -869,7 +880,6 @@ class FitMultipleModel(object):
                     model_in.{self.model_weights_col}
                 ELSE
                     {self.schema_madlib}.fit_step_multiple_model(
-                        NULL,
                         {mb_dep_var_col},
                         {mb_indep_var_col},
                         {dep_shape_col},
@@ -924,8 +934,6 @@ class FitMultipleModel(object):
             DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
         else:
             plpy.error("No rows in output of UDF!")
-
-        plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
 
         if res:
             DEBUG.plpy.info("rows in model_output table after DELETE: {}".format(res[0]['count']))
