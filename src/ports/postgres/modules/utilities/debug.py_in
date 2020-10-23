@@ -16,7 +16,7 @@ def print_timings(msg, force=False):
 def start_timing(msg, force=False):
     if timings_enabled or force:
         start_times[msg] = time.time()
-        plpy_orig.info("|_{}_time_HDR|Elapsed (s)|Current|Current (s)|Start|Start (s)|".format(msg))
+        plpy_orig.info("|_{}_start|Elapsed (s)|Current|Current (s)|Start|Start (s)|".format(msg))
 
 def print_timing(msg, force=False):
     if timings_enabled or force:
