@@ -799,9 +799,9 @@ class FitMultipleModel(object):
             DEBUG.print_timing("hop")
             DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
-            DEBUG.start_timing("truncate_output_time")
+            DEBUG.start_timing("truncate_output")
             self.truncate_and_drop(self.model_output_tbl)
-            DEBUG.print_timing("truncate_output_time")
+            DEBUG.print_timing("truncate_output")
         else:
             # Skip hop if it's the first in an iteration, just rename
             plpy.execute("""
