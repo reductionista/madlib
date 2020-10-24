@@ -51,21 +51,30 @@ import utilities.debug as DEBUG
 class SD_STORE:
     SESS = 'sess'
     SEGMENT_MODEL = 'segment_model'
+    AGG_IMAGE_COUNT = 'agg_image_count'
 
     @staticmethod
     def init_SD(SD, sess, segment_model):
         SD[SD_STORE.SESS] = sess
         SD[SD_STORE.SEGMENT_MODEL] = segment_model
+        SD[SD_STORE.AGG_IMAGE_COUNT] = 0
 
     @staticmethod
     def clear_SD(SD):
         del SD[SD_STORE.SEGMENT_MODEL]
         del SD[SD_STORE.SESS]
+        if SD_STORE.AGG_IMAGE_COUNT in SD:
+            del SD[SD_STORE.AGG_IMAGE_COUNT]
+        else:
+            plpy.warning("clear_SD(): {} not found in SD".format(SD_STORE.AGG_IMAGE_COUNT))
 
 def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
                                model_architecture, compile_params, custom_function_map):
     # If a live session is present, re-use it. Otherwise, recreate it.
     if SD_STORE.SESS in SD :
+        if SD_STORE.AGG_IMAGE_COUNT not in SD:
+            plpy.warning("agg_image_count should already be in SD!  Setting to 0")
+            SD[SD_STORE.AGG_IMAGE_COUNT] = 0
         if SD_STORE.SEGMENT_MODEL not in SD:
             plpy.error("Session and model should exist in SD after the first row"
                        "of the first iteration")
@@ -537,14 +546,13 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         model_architecture, compile_params,
         custom_function_map)
 
-    if 'agg_image_count' not in SD:
+    agg_image_count = SD[SD_STORE.AGG_IMAGE_COUNT]
+    if agg_image_count > 0:
+        DEBUG.print_timings("|_gpdb_btw_rows_time_|{}|".format(trans_enter_time - trans_exit_time))
+    else:
         if trans_exit_time:
             DEBUG.print_timings("|_gpdb_btw_hops_end_time_|{}| Comment: subtract start time on master from this|".format(trans_enter_time - trans_exit_time))
-        agg_image_count = 0
         set_model_weights(segment_model, prev_serialized_weights)
-    else:
-        DEBUG.print_timings("|_gpdb_btw_rows_time_|{}|".format(trans_enter_time - trans_exit_time))
-        agg_image_count = SD['agg_image_count']
 
     # Prepare the data
     x_train = np_array_float32(independent_var, independent_var_shape)
@@ -553,11 +561,12 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Fit segment model on data
     #TODO consider not doing this every time
     fit_params = parse_and_validate_fit_params(fit_params)
-    segment_model.fit(x_train, y_train, **fit_params)
+    with K.tf.device(device_name):
+        segment_model.fit(x_train, y_train, **fit_params)
 
     # Aggregating number of images, loss and accuracy
     agg_image_count += len(x_train)
-    SD['agg_image_count'] = agg_image_count
+    SD[SD_STORE.AGG_IMAGE_COUNT] = agg_image_count
     total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
                                                       images_per_seg)
     is_last_row = agg_image_count == total_images
@@ -565,10 +574,10 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
                                        agg_image_count, total_images)
 
     if is_last_row:
+        SD[SD_STORE.AGG_IMAGE_COUNT] = 0  # Must be reset after each pass through images
         if is_final_iteration or is_multiple_model:
             SD_STORE.clear_SD(SD)
             clear_keras_session(sess)
-            del SD['agg_image_count']  # TODO:  move to SD_STATE
 
     trans_exit_time = time.time()
     DEBUG.print_timings("|_fit_transition_time_|{}|".format(trans_exit_time - trans_enter_time))
@@ -647,8 +656,8 @@ def fit_multiple_transition_caching(state, dependent_var, independent_var, depen
         fit_params = parse_and_validate_fit_params(fit_params)
         for i in range(len(SD['x_train'])):
             # Fit segment model on data
-            segment_model.fit(SD['x_train'][i], SD['y_train'][i], **fit_params)
-
+            with K.tf.device(device_name):
+                segment_model.fit(SD['x_train'][i], SD['y_train'][i], **fit_params)
 
     return_state = get_state_to_return(segment_model, is_last_row, True,
                                        agg_image_count, total_images)
