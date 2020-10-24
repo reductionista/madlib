@@ -922,7 +922,25 @@ class FitMultipleModel(object):
                        self=self
                        )
         )
-        plpy.execute(udf_query)
+        try:
+            plpy.execute(uda_query)
+        except plpy.SPIError as e:
+            msg = e.message
+            if 'TransAggDetail' in msg:
+                e.message, detail = msg.split('TransAggDetail')
+            elif 'MergeAggDetail' in msg:
+                e.message, detail = msg.split('MergeAggDetail')
+            elif 'FinalAggDetail' in msg:
+                e.message, detail = msg.split('FinalAggDetail')
+            else:
+                raise e
+            # Extract Traceback from segment, add to
+            #  DETAIL of error message on coordinator
+            e.args = (e.message,)
+            spidata = list(e.spidata)
+            spidata[1] = detail
+            e.spidata = tuple(spidata)
+            raise e
 
         DEBUG.print_timing("udf")
 

@@ -1539,7 +1539,11 @@ PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
     except Exception as e:
         etype, _, tb = exc_info()
         detail = ''.join(traceback.format_exception(etype, e, tb))
-        message = e.args[0] + 'FitTransDetail' + detail
+        plpy.info(len(e.args))
+        if len(e.args) > 0:
+            message = e.args[0] + 'FitTransDetail' + detail
+        else:
+            message = 'Weird Error?FitTransDetail' + detail
         e.args = (message,)
         raise e
 $$ LANGUAGE plpythonu
