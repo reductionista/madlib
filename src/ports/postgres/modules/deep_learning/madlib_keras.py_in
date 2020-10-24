@@ -75,7 +75,7 @@ def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
         sess = create_keras_session(device_name, gpu_count, segments_per_host)
         segment_model = init_model(model_architecture, compile_params, custom_function_map)
         SD_STORE.init_SD(SD, sess, segment_model)
-        if tf.config.optimizer.__getattribute__('set_jit'):
+        if 'set_jit' in tf.config.optimizer.__all__:
             tf.config.optimizer.set_jit(True)
             plpy.info("XLA JIT compilation enabled.")
         else:

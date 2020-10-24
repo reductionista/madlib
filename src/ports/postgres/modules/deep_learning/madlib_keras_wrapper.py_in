@@ -66,14 +66,14 @@ def reset_cuda_env(value):
 
 def get_device_name_and_set_cuda_env(gpu_count, seg):
     if gpu_count > 0:
-        device_name = '/XLA_GPU:0'
+        device_name = '/GPU:0'
         if is_platform_pg():
             cuda_visible_dev = ','.join([str(i) for i in range(gpu_count)])
         else:
             cuda_visible_dev = str(seg % gpu_count)
         set_cuda_env(cuda_visible_dev)
     else: # cpu only
-        device_name = '/XLA_CPU:0'
+        device_name = '/CPU:0'
         set_cuda_env('-1')
     return device_name
 
