@@ -72,10 +72,14 @@ def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
         segment_model = SD[SD_STORE.SEGMENT_MODEL]
         K.set_session(sess)
     else:
-        sess = get_keras_session(device_name, gpu_count, segments_per_host)
-        K.set_session(sess)
+        sess = create_keras_session(device_name, gpu_count, segments_per_host)
         segment_model = init_model(model_architecture, compile_params, custom_function_map)
         SD_STORE.init_SD(SD, sess, segment_model)
+        if tf.config.optimizer.__getattribute__('set_jit'):
+            tf.config.optimizer.set_jit(True)
+            plpy.info("XLA JIT compilation enabled.")
+        else:
+            plpy.warning("XLA JIT compilation disabled--unsupported by this version of tensorflow.")
     return segment_model, sess
 
 @MinWarning("warning")
@@ -530,7 +534,8 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     # Fit segment model on data
     #TODO consider not doing this every time
     fit_params = parse_and_validate_fit_params(fit_params)
-    segment_model.fit(x_train, y_train, **fit_params)
+    with K.tf.device(device_name):
+        segment_model.fit(x_train, y_train, **fit_params)
 
     # Aggregating number of images, loss and accuracy
     agg_image_count += len(x_train)
