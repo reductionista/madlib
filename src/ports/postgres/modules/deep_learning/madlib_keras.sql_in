@@ -1805,10 +1805,13 @@ PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras')
     try:
         return madlib_keras.fit_transition(**globals())
     except Exception as e:
-        plpy.info("Sending Traceback back to coordinator...")
         etype, _, tb = exc_info()
         detail = ''.join(traceback.format_exception(etype, e, tb))
-        message = e.args[0] + 'TransAggDetail' + detail
+        if len(e.args) > 0:
+            message = e.args[0] + 'TransAggDetail' + detail
+        else:
+            message = 'Weird Error?TransAggDetail' + detail
+        e.args = (message,)
         e.args = (message,)
         raise e
 $$ LANGUAGE plpythonu
