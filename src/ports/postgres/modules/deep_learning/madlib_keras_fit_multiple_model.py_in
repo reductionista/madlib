@@ -151,17 +151,14 @@ class FitMultipleModel(object):
         else:
             self.accessible_gpus_for_seg = get_seg_number()*[0]
 
-        # For warm start, we need to copy the model output table to a temp table
-        # because we call truncate on the model output table while training.
-        # If the query gets aborted, we need to make sure that the user passed
-        # model output table can be recovered.
         self.original_model_output_tbl = model_output_table
-        if self.original_model_output_tbl:
-            self.model_info_tbl = add_postfix(self.original_model_output_tbl, '_info')
-            self.model_summary_table = add_postfix(
-                self.original_model_output_tbl, '_summary')
-	else:
+        if not self.original_model_output_tbl:
 	    plpy.error("Must specify an output table.")
+
+        self.model_info_tbl = add_postfix(
+            self.original_model_output_tbl, '_info')
+        self.model_summary_table = add_postfix(
+            self.original_model_output_tbl, '_summary')
 
         self.model_output_tbl = unique_string('model_output')
         self.warm_start = bool(warm_start)
@@ -266,19 +263,20 @@ class FitMultipleModel(object):
         2. rename temp to original
         :return:
         """
-        drop_extra_cols_query = """
-             ALTER TABLE {self.model_output_tbl}
-                DROP COLUMN {self.fit_params_col},
-                DROP COLUMN {self.compile_params_col},
-                DROP COLUMN {self.object_map_col}
-        """.format(self=self)
-        plpy.execute(drop_extra_cols_query)
-        if self.model_output_tbl != self.original_model_output_tbl:
-            drop_tbl_query = "DROP TABLE IF EXISTS {}".format(
-                self.original_model_output_tbl)
-            plpy.execute(drop_tbl_query)
-            rename_table(self.schema_madlib, self.model_output_tbl,
-                     self.original_model_output_tbl)
+        final_output_table_create_query = """
+                                    DROP TABLE IF EXISTS {self.original_model_output_tbl};
+                                    CREATE TABLE {self.original_model_output_tbl} AS
+                                    SELECT
+                                        {self.mst_key_col}::INTEGER,
+                                        {self.model_weights_col}::BYTEA,
+                                        {self.model_arch_col}::JSON,
+                                        {self.dist_key_col}::INTEGER
+                                    FROM {self.model_output_tbl}
+                                    DISTRIBUTED BY ({self.dist_key_col})
+                                    """.format(self=self)
+        plpy.execute(final_output_table_create_query)
+
+        plpy.execute("DROP TABLE {self.model_output_tbl}".format(self=self))
 
     def train_multiple_model(self):
         total_msts = len(self.all_mst_keys)

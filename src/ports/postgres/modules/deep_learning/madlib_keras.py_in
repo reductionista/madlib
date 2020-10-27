@@ -147,7 +147,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
     gp_segment_id_col = '0' if is_platform_pg() else GP_SEGMENT_ID_COLNAME
 
     serialized_weights = get_initial_weights(model, model_arch, model_weights,
-                                             warm_start, use_gpus, accessible_gpus_for_seg)
+                                             warm_start, accessible_gpus_for_seg)
     # Compute total images on each segment
     dist_key_mapping, images_per_seg_train = get_image_count_per_seg_for_minibatched_data_from_db(source_table)
 
