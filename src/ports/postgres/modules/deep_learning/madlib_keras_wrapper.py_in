@@ -388,15 +388,15 @@ def query_custom_functions_map(object_table, custom_fn_names):
     """
     # Dictionary map of name:object
     # {custom_fn1 : function_def_obj1, custom_fn2 : function_def_obj2}
-    custom_fn_map = defaultdict(list)
+    custom_fn_map = dict()
 
     if len(custom_fn_names) < 1:
         return custom_fn_map
 
     fn_set = set(custom_fn_names)
-    unique_fn_list = (list(fn_set))
+    unique_fn_list = list(fn_set)
 
-    custom_obj_col_name = '{0}'.format(CustomFunctionSchema.FN_OBJ)
+    custom_obj_col_name = CustomFunctionSchema.FN_OBJ
     # Query the custom function if not yet loaded from table
     res = plpy.execute("""
                         SELECT {custom_fn_col_name}, {custom_obj_col_name} FROM {object_table}

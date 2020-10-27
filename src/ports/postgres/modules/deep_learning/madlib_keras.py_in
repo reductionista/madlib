@@ -440,7 +440,7 @@ def get_source_summary_table_dict(fit_validator):
 def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                              serialized_weights, use_gpus, accessible_gpus_for_seg,
                              dist_key_mapping, images_per_seg_val, metrics_list, loss_list,
-                             curr_iter, is_final_iteration, custom_fn_name,
+                             curr_iter, is_final_iteration, custom_fn_map,
                              model_table=None, mst_key=None):
     """
     Compute the loss and metric using a given model (serialized_weights) on the
@@ -457,7 +457,7 @@ def compute_loss_and_metrics(schema_madlib, table, compile_params, model_arch,
                                                    dist_key_mapping,
                                                    images_per_seg_val,
                                                    is_final_iteration,
-                                                   custom_fn_name,
+                                                   custom_fn_map,
                                                    model_table,
                                                    mst_key)
     end_val = time.time()

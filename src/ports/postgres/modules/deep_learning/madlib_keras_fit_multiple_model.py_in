@@ -180,7 +180,7 @@ class FitMultipleModel(object):
         self.object_map_col = 'object_map'
         self.custom_mst_keys = None
         if self.object_table is not None:
-            self.populate_object_map()  # This must happen before we build msts_for_schedule
+            self.populate_object_map()
 
         self.original_cuda_env = None
         if CUDA_VISIBLE_DEVICES_KEY in os.environ:
@@ -385,7 +385,6 @@ class FitMultipleModel(object):
                 custom_fn_names.add(local_metric)
                 custom_msts.append(mst)
 
-        # Pass only unique custom_fn_names to query from object table
         self.custom_fn_object_map = query_custom_functions_map(self.object_table, custom_fn_names)
 
         for mst in custom_msts:
@@ -600,7 +599,7 @@ class FitMultipleModel(object):
             )
 
         if self.custom_mst_keys:
-            custom_keys = '{{{}}}'.format(
+            custom_keys = '({})'.format(
                 ','.join( map(str, self.custom_mst_keys) )
             )
 
@@ -610,7 +609,7 @@ class FitMultipleModel(object):
                     SET {self.object_map_col} = $1
                         WHERE {self.mst_key_col} IN {custom_keys}
             """.format(**locals()), ["BYTEA"])
-            DEBUG.plpy.execute(add_object_maps_plan, [{self.custom_fn_object_map}])
+            DEBUG.plpy.execute(add_object_maps_plan, [self.custom_fn_object_map])
 
     def init_model_info_tbl(self):
         info_table_create_query = """
@@ -820,9 +819,9 @@ class FitMultipleModel(object):
             DEBUG.print_timing("hop")
             DEBUG.print_mst_keys(self.model_input_tbl, 'after_hop')
 
-            DEBUG.start_timing("truncate_output_time")
+            DEBUG.start_timing("truncate_output")
             self.truncate_and_drop(self.model_output_tbl)
-            DEBUG.print_timing("truncate_output_time")
+            DEBUG.print_timing("truncate_output")
         else:
             # Skip hop if it's the first in an iteration, just rename
             plpy.execute("""
