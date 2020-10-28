@@ -650,7 +650,7 @@ class FitMultipleModel(object):
                 m.{self.compile_params_col},
                 m.{self.fit_params_col},
                 '{model_type}',
-                LENGTH(o.{self.model_weights_col})/1024
+                LENGTH(o.{self.model_weights_col})/1024.0
             FROM {self.model_selection_table} m JOIN {self.model_output_tbl} o
                 USING ({self.mst_key_col})
         """.format(self=self,
