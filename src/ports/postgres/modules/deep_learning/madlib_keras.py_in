@@ -52,12 +52,13 @@ class SD_STORE:
     SESS = 'sess'
     SEGMENT_MODEL = 'segment_model'
     AGG_IMAGE_COUNT = 'agg_image_count'
+    TRANS_ENTER_TIME = 'trans_enter_time'
+    TRANS_EXIT_TIME = 'trans_exit_time'
 
     @staticmethod
     def init_SD(SD, sess, segment_model):
         SD[SD_STORE.SESS] = sess
         SD[SD_STORE.SEGMENT_MODEL] = segment_model
-        SD[SD_STORE.AGG_IMAGE_COUNT] = 0
 
     @staticmethod
     def clear_SD(SD):
@@ -65,8 +66,6 @@ class SD_STORE:
         del SD[SD_STORE.SESS]
         if SD_STORE.AGG_IMAGE_COUNT in SD:
             del SD[SD_STORE.AGG_IMAGE_COUNT]
-        else:
-            plpy.warning("clear_SD(): {} not found in SD".format(SD_STORE.AGG_IMAGE_COUNT))
 
 def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
                                model_architecture, compile_params, custom_function_map):
@@ -496,21 +495,12 @@ def init_model(model_architecture, compile_params, custom_function_map):
     compile_model(segment_model, compile_params, custom_function_map)
     return segment_model
 
-def update_model(segment_model, prev_serialized_weights):
-    """
-        Happens at first row of each iteration.
-    """
-    model_shapes = get_model_shapes(segment_model)
-    model_weights = madlib_keras_serializer.deserialize_as_nd_weights(
-        prev_serialized_weights, model_shapes)
-    segment_model.set_weights(model_weights)
-
-def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
-                   independent_var_shape, model_architecture,
-                   compile_params, fit_params, dist_key, dist_key_mapping,
-                   current_seg_id, segments_per_host, images_per_seg, use_gpus,
-                   accessible_gpus_for_seg, prev_serialized_weights, is_final_iteration=True,
-                   is_multiple_model=False, custom_function_map=None, **kwargs):
+def fit_transition(
+    state, dependent_var, independent_var, dependent_var_shape,
+    independent_var_shape, model_architecture, compile_params, fit_params, dist_key,
+    dist_key_mapping, current_seg_id, segments_per_host, images_per_seg, use_gpus,
+    accessible_gpus_for_seg, prev_serialized_weights, is_final_iteration=True,
+    is_multiple_model=False, custom_function_map=None, **kwargs):
     """
     This transition function is common for madlib_keras_fit() and
     madlib_keras_fit_multiple_model(). The important difference between
@@ -527,8 +517,12 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         b. keras session is cleared at the end of the final iteration,
         i.e, last row of last iteration.
     """
-    if not independent_var or not dependent_var:
+    if not dependent_var_shape:
+        plpy.error("fit_transition called with no data")
+
+    if not prev_serialized_weights:
         return state
+
     SD = kwargs['SD']
 
     trans_enter_time = time.time()
@@ -546,7 +540,12 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
         model_architecture, compile_params,
         custom_function_map)
 
-    agg_image_count = SD[SD_STORE.AGG_IMAGE_COUNT]
+    if SD_STORE.AGG_IMAGE_COUNT in SD:
+        agg_image_count = SD[SD_STORE.AGG_IMAGE_COUNT]
+    else:
+        agg_image_count = 0
+        SD[SD_STORE.AGG_IMAGE_COUNT] = agg_image_count
+
     if agg_image_count > 0:
         DEBUG.print_timings("|_gpdb_btw_rows_time_|{}|".format(trans_enter_time - trans_exit_time))
     else:
@@ -585,50 +584,59 @@ def fit_transition(state, dependent_var, independent_var, dependent_var_shape,
     SD['trans_exit_time'] = trans_exit_time
     return return_state
 
-def fit_multiple_transition_caching(state, dependent_var, independent_var, dependent_var_shape,
-                             independent_var_shape, model_architecture,
-                             compile_params, fit_params, dist_key, dist_key_mapping,
-                             current_seg_id, segments_per_host, images_per_seg, use_gpus,
-                             accessible_gpus_for_seg, prev_serialized_weights,
-                             is_final_training_call, custom_function_map=None, **kwargs):
+def fit_multiple_transition_caching(
+    dependent_var, independent_var, dependent_var_shape, independent_var_shape,
+    model_architecture, compile_params, fit_params, dist_key, dist_key_mapping,
+    current_seg_id, segments_per_host, images_per_seg, use_gpus, accessible_gpus_for_seg,
+    serialized_weights, is_final_training_call, custom_function_map=None, **kwargs):
     """
     This transition function is called when caching is called for
     madlib_keras_fit_multiple_model().
-    The input params: dependent_var, independent_var are passed in
-    as None and dependent_var_shape, independent_var_shape as [0]
-    for all hops except the very first hop
+    The input params: dependent_var, independent_var,
+    dependent_var_shape and independent_var_shape are passed
+    in as None for all hops except the very first hop
     Some things to note in this function are:
-    - prev_serialized_weights can be passed in as None for the
+    - weights can be passed in as None for the
       very first hop and the final training call
     - x_train, y_train and cache_set is cleared from SD for
-      final_training_call = TRUE
+      is_final_training_call = True
     """
-    if not state:
-        agg_image_count = 0
-    else:
-        agg_image_count = float(state)
-
     SD = kwargs['SD']
-    is_cache_set = 'cache_set' in SD
+
+    trans_enter_time = time.time()
+    trans_exit_time = None
+    if SD_STORE.TRANS_EXIT_TIME in SD:
+        trans_exit_time = SD[SD_STORE.TRANS_EXIT_TIME]
+        SD[SD_STORE.TRANS_EXIT_TIME] = 0
+
+    if SD_STORE.AGG_IMAGE_COUNT in SD:
+        agg_image_count = SD[SD_STORE.AGG_IMAGE_COUNT]
+    else:
+        agg_image_count = 0
+        SD[SD_STORE.AGG_IMAGE_COUNT] = agg_image_count
+
+    if agg_image_count > 0:
+        DEBUG.print_timings("|_gpdb_btw_rows_time_|{}|".format(trans_enter_time - trans_exit_time))
+    else:
+        if trans_exit_time:
+            DEBUG.print_timings("|_gpdb_btw_hops_end_time_|{}| Comment: subtract start time on master from this|".format(trans_enter_time - trans_exit_time))
 
     # Prepare the data
-    if is_cache_set:
+    if dependent_var_shape is None:
         if 'x_train' not in SD or 'y_train' not in SD:
             plpy.error("cache not populated properly.")
-        total_images = None
         is_last_row = True
+        total_images = None
     else:
-        if not independent_var or not dependent_var:
-            return state
-        if 'x_train' not in SD:
-            SD['x_train'] = list()
-            SD['y_train'] = list()
+        if 'x_train' in SD or 'y_train' in SD:
+            plpy.warning("discarding old training data cache")
+        SD['x_train'] = list()
+        SD['y_train'] = list()
         agg_image_count += independent_var_shape[0]
-        total_images = get_image_count_per_seg_from_array(dist_key_mapping.index(dist_key),
-                                                          images_per_seg)
+        total_images = get_image_count_per_seg_from_array(
+            dist_key_mapping.index(dist_key), images_per_seg
+        )
         is_last_row = agg_image_count == total_images
-        if is_last_row:
-            SD['cache_set'] = True
         x_train_current = np_array_float32(independent_var, independent_var_shape)
         y_train_current = np_array_int16(dependent_var, dependent_var_shape)
         SD['x_train'].append(x_train_current)
@@ -636,12 +644,11 @@ def fit_multiple_transition_caching(state, dependent_var, independent_var, depen
 
     # Passed in weights can be None. Irrespective of the weights, we want to populate the cache for the very first hop.
     # But if the weights are None, we do not want to set any model. So early return in that case
-    if prev_serialized_weights is None:
+    if serialized_weights is None:
         if is_final_training_call:
             del SD['x_train']
             del SD['y_train']
-            del SD['cache_set']
-        return float(agg_image_count)
+        return None
 
     segment_model = None
     if is_last_row:
@@ -651,12 +658,12 @@ def fit_multiple_transition_caching(state, dependent_var, independent_var, depen
                                                       segments_per_host,
                                                       model_architecture, compile_params,
                                                       custom_function_map)
-        set_model_weights(segment_model, prev_serialized_weights)
+        set_model_weights(segment_model, serialized_weights)
 
         fit_params = parse_and_validate_fit_params(fit_params)
-        for i in range(len(SD['x_train'])):
-            # Fit segment model on data
-            with K.tf.device(device_name):
+        with K.tf.device(device_name):
+            for i in range(len(SD['x_train'])):
+                # Fit segment model on data
                 segment_model.fit(SD['x_train'][i], SD['y_train'][i], **fit_params)
 
     return_state = get_state_to_return(segment_model, is_last_row, True,
@@ -668,7 +675,6 @@ def fit_multiple_transition_caching(state, dependent_var, independent_var, depen
         if is_final_training_call:
             del SD['x_train']
             del SD['y_train']
-            del SD['cache_set']
 
     return return_state
 

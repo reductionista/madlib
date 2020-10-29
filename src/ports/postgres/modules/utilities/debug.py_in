@@ -53,6 +53,9 @@ def print_mst_keys(table, label, force=False):
                mst_key_col=mst_key_col))
 
     plpy_orig.info("|_MST_KEYS_{label}_HDR|mst_key|seg_id|dist_key|table".format(**locals()))
+    if not res:
+        plpy_orig.error("{table} is empty!  Aborting".format(table=table))
+
     for r in res:
         seg_id = r['seg_id']
         mst_key = r['mst_key']

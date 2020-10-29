@@ -246,6 +246,8 @@ def query_weights(model_output_table, model_weights_col, mst_key_col, mst_key):
                         WHERE {mst_key_col} = {mst_key}
                         """.format(**locals())
     res = plpy.execute(mlp_weights_query)
+    if not res:
+        plpy.error("query_weights:  No weights in model output table for mst={}".format(mst_key))
     return res[0][model_weights_col]
 
 def create_summary_view(module_name, model_table, mst_key):

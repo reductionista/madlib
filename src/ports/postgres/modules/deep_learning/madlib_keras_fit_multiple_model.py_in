@@ -36,7 +36,6 @@ from madlib_keras_model_selection import ModelSelectionSchema
 from madlib_keras_validator import *
 from madlib_keras_wrapper import *
 
-from utilities.control import MinWarning
 from utilities.control import OptimizerControl
 from utilities.control import SetGUC
 from utilities.utilities import add_postfix
@@ -51,9 +50,9 @@ from utilities.utilities import rename_table
 import utilities.debug as DEBUG
 
 DEBUG.timings_enabled = True
-DEBUG.mst_keys_enabled = False
-DEBUG.plpy_execute_enabled = False
-DEBUG.plpy_info_enabled = False
+DEBUG.mst_keys_enabled = True
+DEBUG.plpy_execute_enabled = True
+DEBUG.plpy_info_enabled = True
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
@@ -80,7 +79,6 @@ segment.
 Note that this function is disabled for Postgres.
 """
 
-@MinWarning("warning")
 class FitMultipleModel(object):
     def __init__(self, schema_madlib, source_table, model_output_table,
                  model_selection_table, num_iterations,
@@ -397,7 +395,7 @@ class FitMultipleModel(object):
         mst_key_list = '[' + ','.join(self.all_mst_keys) + ']'
 
         create_sched_query = """
-            CREATE {self.unlogged_table} TABLE {self.schedule_tbl} AS
+            CREATE TABLE {self.schedule_tbl} AS
                 WITH map AS
                     (SELECT
                         unnest(ARRAY{mst_key_list}) {self.mst_key_col},
@@ -801,7 +799,7 @@ class FitMultipleModel(object):
             DEBUG.print_mst_keys(self.model_output_tbl, 'before_hop')
             DEBUG.start_timing("hop")
             hop_query = """
-                CREATE TABLE {self.model_input_tbl} AS
+                CREATE {self.unlogged_table} TABLE {self.model_input_tbl} AS
                     SELECT o.{self.mst_key_col},
                            o.{self.model_weights_col},
                            o.{self.model_arch_col},
@@ -830,8 +828,8 @@ class FitMultipleModel(object):
             """.format(self=self))
  
         use_gpus = self.use_gpus if self.use_gpus else False
-        ind_shape_col = self.ind_shape_col
-        dep_shape_col = self.dep_shape_col
+        ind_shape = self.ind_shape_col
+        dep_shape = self.dep_shape_col
         dep_var = mb_dep_var_col
         indep_var = mb_indep_var_col
         source_table = self.source_table
@@ -849,13 +847,14 @@ class FitMultipleModel(object):
             if is_very_first_hop:
                 plpy.execute("""
                     DROP TABLE IF EXISTS {self.cached_source_table};
-                    CREATE TABLE {self.cached_source_table} AS SELECT {dist_key_col} FROM {self.source_table} GROUP BY {dist_key_col} DISTRIBUTED BY({dist_key_col});
+                    CREATE TABLE {self.cached_source_table} AS
+                        SELECT {self.dist_key_col} FROM {self.source_table}
+                            GROUP BY {self.dist_key_col}
+                                DISTRIBUTED BY({self.dist_key_col});
                     """.format(self=self))
             else:
-                dep_shape_col = 'ARRAY[0]'
-                ind_shape_col = 'ARRAY[0]'
-                dep_var = 'NULL'
-                indep_var = 'NULL'
+                dep_shape = ind_shape = 'NULL'
+                dep_var = indep_var = 'NULL'
                 source_table = self.cached_source_table
             if is_very_first_hop or self.is_final_training_call:
                 # For the first hop, we want to load data on all segments
@@ -887,11 +886,10 @@ class FitMultipleModel(object):
                     model_in.{self.model_weights_col}
                 ELSE
                     {self.schema_madlib}.fit_transition_multiple_model(
-                        NULL,
-                        {mb_dep_var_col},
-                        {mb_indep_var_col},
-                        {dep_shape_col},
-                        {ind_shape_col},
+                        {dep_var_col},
+                        {indep_var_col},
+                        {dep_shape},
+                        {ind_shape},
                         model_in.{self.model_arch_col}::TEXT,
                         model_in.{self.compile_params_col}::TEXT,
                         model_in.{self.fit_params_col}::TEXT,
@@ -914,18 +912,16 @@ class FitMultipleModel(object):
                 model_in.{self.object_map_col},
                 model_in.{self.dist_key_col}
             FROM {self.model_input_tbl} model_in
-                LEFT JOIN {source_table} src
+                FULL JOIN {source_table} src
                 USING ({self.dist_key_col}) 
-            {where_clause}
             DISTRIBUTED BY({self.dist_key_col})
-            """.format(mb_dep_var_col=mb_dep_var_col,
-                       mb_indep_var_col=mb_indep_var_col,
-                       dep_shape_col=dep_shape_col,
-                       ind_shape_col=ind_shape_col,
+            """.format(dep_var_col=dep_var,
+                       indep_var_col=indep_var,
+                       dep_shape=dep_shape,
+                       ind_shape=ind_shape,
                        use_caching=self.use_caching,
                        use_gpus=use_gpus,
                        source_table=source_table,
-                       where_clause=where_clause,
                        self=self
                        )
         )
@@ -948,20 +944,19 @@ class FitMultipleModel(object):
         DEBUG.print_timing("udf")
 
         res = plpy.execute("""
-            SELECT count(*)
-            FROM {self.model_output_tbl}
+            SELECT {self.mst_key_col} AS mst_key, {self.model_weights_col} IS NOT NULL AS weights
+                FROM {self.model_output_tbl}
         """.format(self=self))
         if res:
-            DEBUG.plpy.info("rows in model_output table: {}".format(res[0]['count']))
+            null_msts = len([None for row in res if row['mst_key'] is None])
+            null_weights = len([None for row in res if row['weights'] is False])
+            DEBUG.plpy.info(
+                "{} rows total ({} mst_key=NULL and {} weights=NULL) in model_output table."\
+                    .format(res.nrows(), null_msts, null_weights))
         else:
             plpy.error("No rows in output of UDF!")
 
         plpy.execute("DELETE FROM {self.model_output_tbl} WHERE model_weights IS NULL".format(self=self))
-
-        if res:
-            DEBUG.plpy.info("rows in model_output table after DELETE: {}".format(res[0]['count']))
-        else:
-            plpy.error("No non-NULL weights returned from UDF!")
 
         DEBUG.start_timing("truncate_input")
         self.truncate_and_drop(self.model_input_tbl)
