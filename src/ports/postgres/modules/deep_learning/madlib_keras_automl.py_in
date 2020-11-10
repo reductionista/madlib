@@ -41,11 +41,11 @@ class AutoMLConstants:
     SKIP_LAST = 'skip_last'
     HYPERBAND_PARAMS = [R, ETA, SKIP_LAST]
     LOSS_METRIC = 'training_loss_final'
-    TEMP_MST_TABLE = unique_string('temp_mst_table')
-    TEMP_MST_SUMMARY_TABLE = add_postfix(TEMP_MST_TABLE, '_summary')
-    TEMP_OUTPUT_TABLE = unique_string('temp_output_table')
-    TEMP_MODEL_SUMMARY_TABLE = add_postfix(TEMP_OUTPUT_TABLE, '_summary')
-    TEMP_MODEL_INFO_TABLE = add_postfix(TEMP_OUTPUT_TABLE, '_info')
+    MST_TABLE = unique_string('mst_table')
+    MST_SUMMARY_TABLE = add_postfix(MST_TABLE, '_summary')
+    MODEL_OUTPUT_TABLE = unique_string('output_table')
+    MODEL_SUMMARY_TABLE = add_postfix(MODEL_OUTPUT_TABLE, '_summary')
+    MODEL_INFO_TABLE = add_postfix(MODEL_OUTPUT_TABLE, '_info')
     METRICS_ITERS = 'metrics_iters' # custom column
     NUM_CONFIGS = 'num_configs'
     NUM_ITERS = 'num_iterations'
@@ -147,8 +147,7 @@ class KerasAutoML(object):
                                    {AutoMLSchema.METRICS_ITERS} INTEGER[])
                                        """.format(self=self, ModelSelectionSchema=ModelSelectionSchema,
                                                   ModelArchSchema=ModelArchSchema, AutoMLSchema=AutoMLConstants)
-        with MinWarning('warning'):
-            plpy.execute(info_table_create_query)
+        plpy.execute(info_table_create_query)
 
     def update_model_selection_table(self):
         """
@@ -175,16 +174,16 @@ class KerasAutoML(object):
         random_state = 'NULL' if self.random_state is None else '$MAD${0}$MAD$'.format(self.random_state)
         validation_table = 'NULL' if self.validation_table is None else '$MAD${0}$MAD$'.format(self.validation_table)
 
-        create_query = plpy.prepare("""
+        create_query = """
                 CREATE TABLE {self.model_summary_table} AS
                 SELECT
                     $MAD${self.source_table}$MAD$::TEXT AS source_table,
                     {validation_table}::TEXT AS validation_table,
                     $MAD${self.model_output_table}$MAD$::TEXT AS model,
                     $MAD${self.model_info_table}$MAD$::TEXT AS model_info,
-                    (SELECT dependent_varname FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                    (SELECT dependent_varname FROM {a.MODEL_SUMMARY_TABLE})
                         AS dependent_varname,
-                    (SELECT independent_varname FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                    (SELECT independent_varname FROM {a.MODEL_SUMMARY_TABLE})
                         AS independent_varname,
                     $MAD${self.model_arch_table}$MAD$::TEXT AS model_arch_table,
                     $MAD${self.model_selection_table}$MAD$::TEXT AS model_selection_table,
@@ -193,20 +192,20 @@ class KerasAutoML(object):
                     {random_state}::TEXT AS random_state,
                     {object_table}::TEXT AS object_table,
                     {self.use_gpus} AS use_gpus,
-                    (SELECT metrics_compute_frequency FROM {a.TEMP_MODEL_SUMMARY_TABLE})::INTEGER 
+                    (SELECT metrics_compute_frequency FROM {a.MODEL_SUMMARY_TABLE})::INTEGER 
                         AS metrics_compute_frequency,
                     $MAD${self.name}$MAD$::TEXT AS name,
                     $MAD${self.description}$MAD$::TEXT AS description,
                     '{self.start_training_time}'::TIMESTAMP AS start_training_time,
                     '{self.end_training_time}'::TIMESTAMP AS end_training_time,
-                    (SELECT madlib_version FROM {a.TEMP_MODEL_SUMMARY_TABLE}) AS madlib_version,
-                    (SELECT num_classes FROM {a.TEMP_MODEL_SUMMARY_TABLE})::INTEGER AS num_classes,
-                    (SELECT class_values FROM {a.TEMP_MODEL_SUMMARY_TABLE}) AS class_values,
-                    (SELECT dependent_vartype FROM {a.TEMP_MODEL_SUMMARY_TABLE}) 
+                    (SELECT madlib_version FROM {a.MODEL_SUMMARY_TABLE}) AS madlib_version,
+                    (SELECT num_classes FROM {a.MODEL_SUMMARY_TABLE})::INTEGER AS num_classes,
+                    (SELECT class_values FROM {a.MODEL_SUMMARY_TABLE}) AS class_values,
+                    (SELECT dependent_vartype FROM {a.MODEL_SUMMARY_TABLE}) 
                         AS dependent_vartype,
-                    (SELECT normalizing_const FROM {a.TEMP_MODEL_SUMMARY_TABLE})
+                    (SELECT normalizing_const FROM {a.MODEL_SUMMARY_TABLE})
                         AS normalizing_const
-            """.format(self=self, a=AutoMLSchema))
+            """.format(a=AutoMLConstants, **locals())
         plpy.execute(create_query)
 
     def is_automl_method(self, method_name):
@@ -261,8 +260,6 @@ class KerasAutoML(object):
         """
         Remove all intermediate tables created for AutoML runs/updates.
         """
-        if not model_training:
-            return
-        drop_tables([AutoMLSchema.TEMP_OUTPUT_TABLE, AutoMLSchema.TEMP_MODEL_INFO_TABLE,
-                     AutoMLSchema.TEMP_MODEL_SUMMARY_TABLE, AutoMLSchema.TEMP_MST_TABLE,
-                     AutoMLSchema.TEMP_MST_SUMMARY_TABLE])
+        drop_tables([AutoMLConstants.MODEL_OUTPUT_TABLE, AutoMLConstants.MODEL_INFO_TABLE,
+                     AutoMLConstants.MODEL_SUMMARY_TABLE, AutoMLConstants.MST_TABLE,
+                     AutoMLConstants.MST_SUMMARY_TABLE])
