@@ -519,7 +519,7 @@ def fit_transition(
     if not dependent_var_shape:
         plpy.error("fit_transition called with no data")
 
-    if not prev_serialized_weights:
+    if not prev_serialized_weights or not model_architecture:
         return state
 
     SD = kwargs['SD']
