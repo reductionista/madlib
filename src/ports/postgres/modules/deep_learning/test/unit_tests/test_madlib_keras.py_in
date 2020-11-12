@@ -578,7 +578,7 @@ class MadlibKerasFitTestCase(unittest.TestCase):
         self._test_fit_transition_last_buffer_pass(False)
 
     def test_fit_transition_first_tuple_none_ind_var_dep_var(self):
-        k = {}
+        k = {'SD' : {}}
         self.assertEqual('dummy_state',
                          self.subject.fit_transition('dummy_state', [0], None,
                                                      'noshape', 'noshape',
