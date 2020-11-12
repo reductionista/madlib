@@ -88,7 +88,11 @@ def get_keras_session(device_name, gpu_count, segments_per_host):
         memory_fraction = get_gpu_memory_fraction(gpu_count, segments_per_host)
         config.gpu_options.allow_growth = False
         config.gpu_options.per_process_gpu_memory_fraction = memory_fraction
+        plpy.info('jit before = {}'.format(K.tf.config.optimizer.get_jit()))
+        K.tf.config.optimizer.set_jit(True)
     session = tf.Session(config=config)
+    plpy.info('jit after = {}'.format(K.tf.config.optimizer.get_jit()))
+    K.tf.config.optimizer.set_jit(True)  # Just in case?
     return session
 
 def clear_keras_session(sess = None):

@@ -72,7 +72,6 @@ def get_init_model_and_sess(SD, device_name, gpu_count, segments_per_host,
     # If a live session is present, re-use it. Otherwise, recreate it.
     if SD_STORE.SESS in SD :
         if SD_STORE.AGG_IMAGE_COUNT not in SD:
-            plpy.warning("agg_image_count should already be in SD!  Setting to 0")
             SD[SD_STORE.AGG_IMAGE_COUNT] = 0
         if SD_STORE.SEGMENT_MODEL not in SD:
             plpy.error("Session and model should exist in SD after the first row"
