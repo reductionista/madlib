@@ -847,7 +847,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
     and accuracy of each tuple which then gets averaged to get the final result.
     """
 
-    dist_key_col = '0' if is_platform_pg() else DISTRIBUTION_KEY_COLNAME
+    dist_key_col = '0' if is_platform_pg() else '__table__.{0}'.format(DISTRIBUTION_KEY_COLNAME)
     gp_segment_id_col = '0' if is_platform_pg() else '__table__.{0}'.format(GP_SEGMENT_ID_COLNAME)
     segments_per_host = get_segments_per_host()
 
@@ -870,7 +870,7 @@ def get_loss_metric_from_keras_eval(schema_madlib, table, compile_params,
                                             $MAD${model_arch}$MAD$,
                                             {weights},
                                             {compile_params},
-                                            __table__.{dist_key_col},
+                                            {dist_key_col},
                                             ARRAY{dist_key_mapping},
                                             {gp_segment_id_col},
                                             {segments_per_host},
