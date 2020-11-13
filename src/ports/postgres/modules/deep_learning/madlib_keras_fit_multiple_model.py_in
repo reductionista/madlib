@@ -50,9 +50,9 @@ from utilities.utilities import rename_table
 import utilities.debug as DEBUG
 
 DEBUG.timings_enabled = True
-DEBUG.mst_keys_enabled = True
-DEBUG.plpy_execute_enabled = True
-DEBUG.plpy_info_enabled = True
+DEBUG.mst_keys_enabled = False
+DEBUG.plpy_execute_enabled = False
+DEBUG.plpy_info_enabled = False
 
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
@@ -833,9 +833,6 @@ class FitMultipleModel(object):
         dep_var = mb_dep_var_col
         indep_var = mb_indep_var_col
         source_table = self.source_table
-        where_clause = """ 
-            WHERE model_in.{self.mst_key_col} IS NOT NULL
-            """.format(self=self)
 
         if self.use_caching:
             # Caching populates the independent_var and dependent_var into the cache on the very first hop
@@ -856,13 +853,6 @@ class FitMultipleModel(object):
                 dep_shape = ind_shape = 'NULL'
                 dep_var = indep_var = 'NULL'
                 source_table = self.cached_source_table
-            if is_very_first_hop or self.is_final_training_call:
-                # For the first hop, we want to load data on all segments
-                #  that have data, even on the segments where there is no
-                #  model being trained. So we drop the where clause,
-                #  which filters out segments with no models on them for
-                #  hop > 1
-                where_clause = ""
 
         res = plpy.execute("""
             SELECT count(*)
