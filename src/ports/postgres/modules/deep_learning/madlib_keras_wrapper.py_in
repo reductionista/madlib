@@ -66,6 +66,8 @@ def reset_cuda_env(value):
 
 def enable_xla():
     os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
+    os.environ['TF_DUMP_GRAPH_PREFIX'] = '/tmp/tensorflow/graph'
+    tf.debugging.set_log_device_placement(True)
     try:
         K.tf.config.optimizer.set_jit(True)
     except:

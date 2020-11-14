@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import datetime
+from datetime import datetime
 import os
 import plpy
 import sys
@@ -28,6 +28,7 @@ from keras.layers import *
 from keras.models import *
 from keras.optimizers import *
 from keras.regularizers import *
+from keras.callbacks import TensorBoard
 from madlib_keras_helper import *
 from madlib_keras_validator import *
 from madlib_keras_wrapper import *
@@ -128,7 +129,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
 
     # The following two times must be recorded together.
     metrics_elapsed_start_time = time.time()
-    start_training_time = datetime.datetime.now()
+    start_training_time = datetime.now()
     #TODO add a unit test for this in a future PR
     # save the original value of the env variable so that we can reset it later.
     original_cuda_env = None
@@ -271,7 +272,7 @@ def fit(schema_madlib, source_table, model, model_arch_table,
             metrics_elapsed_time.append(
                 metrics_elapsed_end_time-metrics_elapsed_start_time)
         plpy.info("\n"+info_str)
-    end_training_time = datetime.datetime.now()
+    end_training_time = datetime.now()
 
     version = madlib_version(schema_madlib)
     src_summary_dict = get_source_summary_table_dict(fit_validator)
@@ -556,9 +557,13 @@ def fit_transition(
     x_train = np_array_float32(independent_var, independent_var_shape)
     y_train = np_array_int16(dependent_var, dependent_var_shape)
 
+    logdir = "/tmp/tensorflow/scalars/" # + first_import_time.strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = TensorBoard(log_dir=logdir)
+
     # Fit segment model on data
     #TODO consider not doing this every time
     fit_params = parse_and_validate_fit_params(fit_params)
+    fit_params['callbacks'] = [tensorboard_callback]
     with K.tf.device(device_name):
         segment_model.fit(x_train, y_train, **fit_params)
 
