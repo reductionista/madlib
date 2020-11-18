@@ -1,0 +1,238 @@
+m4_include(`SQLCommon.m4')
+
+-- =================== Setup & Initialization for FitMultiple tests ========================
+--
+--  For fit multiple, we test end-to-end functionality along with performance elsewhere.
+--  They take a long time to run.  Including similar tests here would probably not be worth
+--  the extra time added to dev-check.
+--
+--  Instead, we just want to unit test different python functions in the FitMultiple class.
+--  However, most of the important behavior we need to test requires access to an actual
+--  Greenplum database... mostly, we want to make sure that the models hop around to the
+--  right segments in the right order.  Therefore, the unit tests are here, as a part of
+--  dev-check. we mock fit_transition() and some validation functions in FitMultiple, but
+--  do NOT mock plpy, since most of the code we want to test is embedded SQL and needs to
+--  get through to gpdb. We also want to mock the number of segments, so we can test what
+--  the model hopping behavior will be for a large cluster, even though dev-check should be
+--  able to run on a single dev host.
+
+\i m4_regexp(MODULE_PATHNAME,
+             `\(.*\)libmadlib\.so',
+            `\1../../modules/deep_learning/test/madlib_keras_iris.setup.sql_in'
+)
+
+-- Dummy source table for initializing FitMultiple object
+CREATE TABLE dummy_source (LIKE iris_data_packed);
+INSERT INTO dummy_source (dependent_var, independent_var, __dist_key__) VALUES(NULL, NULL,  0);
+
+-- Dummy source_summary table for initializing FitMultiple object
+CREATE TABLE dummy_source_summary (LIKE iris_data_packed_summary);
+--CREATE TABLE dummy_source_summary (
+--    source_table TEXT,
+--    output_table TEXT,
+--    dependent_varname TEXT,
+--    independent_varname TEXT,
+--    dependent_vartype       TEXT,
+--    class_values            TEXT[],
+--    buffer_size             INTEGER,
+--    normalizing_const       REAL,
+--    num_classes             TEXT,
+--    distribution_rules      TEXT,
+--    __internal_gpu_config__ TEXT
+--);
+INSERT INTO dummy_source_summary VALUES('dummy_source', 'model_out', 'y', 'x', NULL, NULL, 1, 1.0, '1', 'all_segments', '');
+
+-- Mock version() function to convince the InputValidator this is the real madlib schema
+CREATE FUNCTION madlib_installcheck_deep_learning.version() RETURNS VARCHAR AS
+$$
+    SELECT MADLIB_SCHEMA.version();
+$$ LANGUAGE sql IMMUTABLE;
+
+-- Call this first to initialize the FitMultiple object, before anything else happens.
+-- Pass a real mst table, rest of FitMultipleModel() constructor params are filled in with dummy values.
+--  Later, they can be overriden with real values appropriate for specific tests.
+CREATE OR REPLACE FUNCTION init_fit_mult(
+    model_selection_table   VARCHAR
+) RETURNS VOID AS
+$$
+    import sys
+    from mock import Mock, patch
+
+    PythonFunctionBodyOnlyNoSchema(`deep_learning', `madlib_keras_fit_multiple_model')
+    schema_madlib = 'madlib_installcheck_deep_learning'
+
+    @patch('deep_learning.madlib_keras_fit_multiple_model.get_image_count_per_seg_for_minibatched_data_from_db',
+        return_value=([0,  1,  2],  [10,  10,  10]))
+    def initialize_fit_mult(c1):
+        return madlib_keras_fit_multiple_model.FitMultipleModel(
+            schema_madlib,
+            'dummy_source',
+            'dummy_model_out',
+            model_selection_table,
+            1
+        )
+
+    fit_mult = initialize_fit_mult()
+    GD['fit_mult'] = fit_mult
+    
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION test_init_schedule(
+    schedule_table VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    fit_mult = GD['fit_mult']
+    fit_mult.schedule_tbl = schedule_table
+
+    if fit_mult.init_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.init_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+CREATE OR REPLACE FUNCTION test_rotate_schedule(
+    schedule_table          VARCHAR
+) RETURNS BOOLEAN AS
+$$
+    fit_mult = GD['fit_mult']
+
+    if fit_mult.schedule_tbl != schedule_table:
+        fit_mult.init_schedule_tbl()
+
+    if fit_mult.rotate_schedule_tbl():
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.rotate_schedule_tbl() returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Mock fit_transition function, for testing
+--  madlib_keras_fit_multiple_model() python code
+CREATE FUNCTION madlib_installcheck_deep_learning.fit_transition(
+    state                       BYTEA,
+    dependent_var               BYTEA,
+    independent_var             BYTEA,
+    dependent_var_shape         INTEGER[],
+    independent_var_shape       INTEGER[],
+    model_architecture          TEXT,
+    compile_params              TEXT,
+    fit_params                  TEXT,
+    dist_key                    INTEGER,
+    dist_key_mapping            INTEGER[],
+    current_seg_id              INTEGER,
+    segments_per_host           INTEGER,
+    images_per_seg              INTEGER[],
+    use_gpus                    BOOLEAN,
+    accessible_gpus_for_seg     INTEGER[],
+    prev_serialized_weights     BYTEA,
+    is_final_training_call      BOOLEAN,
+    use_caching                 BOOLEAN,
+    custom_function_map         BYTEA
+) RETURNS BYTEA AS
+$$
+DECLARE
+    i INTEGER := 0;
+BEGIN
+    i := i + 1;
+    RAISE NOTICE 'fit transition called % time',i;
+    RETURN state; -- Just return whatever was passed in
+END
+$$ LANGUAGE plpgSQL;
+
+CREATE OR REPLACE FUNCTION test_run_training(
+    source_table TEXT,
+    iteration INTEGER,
+    first_hop BOOLEAN,
+    is_final_training_call BOOLEAN
+) RETURNS TEXT AS
+$$
+    fit_mult = GD['fit_mult']
+
+    fit_mult.source_tbl = source_table
+    fit_mult.init_model_output_tbl()
+    fit_mult.is_final_training_call = is_final_training_call
+
+    if fit_mult.run_training(iteration, first_hop):
+        err_msg = None
+    else:
+        err_msg = 'FitMultiple.run_training(0) returned False'
+
+    return err_msg
+$$ LANGUAGE plpythonu VOLATILE
+m4_ifdef(`__HAS_FUNCTION_PROPERTIES__', `MODIFIES SQL DATA', `');
+
+-- Create mst table (maybe this should be moved to common setup file?
+DROP TABLE IF EXISTS iris_mst_table, iris_mst_table_summary;
+SELECT load_model_selection_table(
+    'iris_model_arch',
+    'iris_mst_table',
+    ARRAY[1],
+    ARRAY[
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.1)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy', optimizer='Adam(lr=0.01)',metrics=['accuracy']$$,
+        $$loss='categorical_crossentropy',optimizer='Adam(lr=0.001)',metrics=['accuracy']$$
+    ],
+    ARRAY[
+        $$batch_size=5,epochs=1$$,
+        $$batch_size=10,epochs=1$$
+    ]
+);
+
+-- Create FitMultiple object for running test functions
+SELECT init_fit_mult('iris_mst_table');
+
+-- ====================================================================
+-- ===========  Enough setup, now for the actual tests! ===============
+-- ====================================================================
+
+-- Test init_schedule_tbl()
+DROP TABLE IF EXISTS current_schedule;
+SELECT test_init_schedule('current_schedule');
+SELECT * FROM current_schedule ORDER BY __dist_key__;
+
+SELECT * FROM iris_mst_table;
+
+-- Add some assert's here
+SELECT ARRAY(SELECT mst_key FROM iris_mst_table ORDER BY mst_key) s \gset mst
+SELECT ASSERT(COUNT(*) = ARRAY_UPPER(:'msts'::INTEGER[], 1),
+    'test_init_schedule returned ' || count(*) || ' rows. ' ||
+    'Expected ' || ARRAY_UPPER(:'msts'::INTEGER[], 1) || ' rows.') FROM current_schedule;
+SELECT ASSERT(ARRAY(SELECT mst_key AS mst_keys FROM current_schedule ORDER BY mst_keys) = :'msts',
+    'mst keys returned from test_init_schedule() do not match iris_mst_table');
+
+-- Test rotate_schedule()
+SELECT test_rotate_schedule('current_schedule');
+SELECT * FROM current_schedule ORDER BY __dist_key__;
+
+--SELECT check_full_rotation()
+
+-- Add some assert's here
+
+-- Test very first hop of first iteration
+SELECT test_run_training('iris_data_packed', 0, True, False);
+
+-- Should just be a table rename
+   -- SELECT assert(model_input_tbl == model_output_tbl)
+
+-- Session should get initialized for ALL segments, even ones with NULL model weights
+   -- [ Assert 'session' and 'model' have been saved in SD, for all  ]
+
+-- Test an ordinary hop (should clear session on segments with models, and rotate mst's)
+SELECT test_run_training('iris_data_packed', 0, False, False);
+
+-- Assert 
+
+-- Test first hop of another iteration (should be a table rename, but re-use same session):
+SELECT test_run_training('iris_data_packed', 5, True, False);
+-- Assert model_input = model_output
+
+-- Test a final training hop (should clear session on ALL segments, even those with NULL model_weights this round)
+SELECT test_run_training('iris_data_packed', 2, False, True);
+
+-- Assert 
