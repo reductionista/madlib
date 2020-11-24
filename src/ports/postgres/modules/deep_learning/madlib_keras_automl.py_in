@@ -194,8 +194,8 @@ class KerasAutoML(object):
                     {self.use_gpus} AS use_gpus,
                     (SELECT metrics_compute_frequency FROM {a.MODEL_SUMMARY_TABLE})::INTEGER 
                         AS metrics_compute_frequency,
-                    $MAD${self.name}$MAD$::TEXT AS name,
-                    $MAD${self.description}$MAD$::TEXT AS description,
+                    {name}::TEXT AS name,
+                    {descr}::TEXT AS description,
                     '{self.start_training_time}'::TIMESTAMP AS start_training_time,
                     '{self.end_training_time}'::TIMESTAMP AS end_training_time,
                     (SELECT madlib_version FROM {a.MODEL_SUMMARY_TABLE}) AS madlib_version,
