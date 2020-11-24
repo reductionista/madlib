@@ -138,7 +138,7 @@ class FitMultipleModel(object):
         self.info_str = ""
         self.dep_shape_col = add_postfix(mb_dep_var_col, "_shape")
         self.ind_shape_col = add_postfix(mb_indep_var_col, "_shape")
-        self.use_gpus = use_gpus
+        self.use_gpus = use_gpus if use_gpus else False
         self.segments_per_host = get_segments_per_host()
         self.cached_source_table = unique_string('cached_source_table')
         self.metrics_elapsed_time_offset = metrics_elapsed_time_offset
@@ -431,7 +431,7 @@ class FitMultipleModel(object):
             """.format(self=self)
             self.rotate_schedule_tbl_plan = plpy.prepare(rotate_schedule_tbl_query)
 
-        plpy.execute(self.rotate_schedule_tbl_plan)
+        DEBUG.plpy.execute(self.rotate_schedule_tbl_plan)
 
         self.truncate_and_drop(self.schedule_tbl)
         plpy.execute("""
@@ -504,8 +504,9 @@ class FitMultipleModel(object):
                                      {self.fit_params_col} TEXT,
                                      {self.object_map_col} BYTEA,
                                      {self.dist_key_col} INTEGER,
-                                     PRIMARY KEY ({self.mst_key_col}, {self.dist_key_col}))
-                                     DISTRIBUTED BY ({self.dist_key_col})
+                                     PRIMARY KEY ({self.dist_key_col}, {self.mst_key_col})
+                                    )
+                                    DISTRIBUTED BY ({self.dist_key_col})
                                     """.format(self=self)
         plpy.execute(output_table_create_query)
 
@@ -827,7 +828,6 @@ class FitMultipleModel(object):
                     RENAME TO {self.model_input_tbl}
             """.format(self=self))
  
-        use_gpus = self.use_gpus if self.use_gpus else False
         ind_shape = self.ind_shape_col
         dep_shape = self.dep_shape_col
         dep_var = mb_dep_var_col
@@ -910,7 +910,6 @@ class FitMultipleModel(object):
                        dep_shape=dep_shape,
                        ind_shape=ind_shape,
                        use_caching=self.use_caching,
-                       use_gpus=use_gpus,
                        source_table=source_table,
                        self=self
                        )
