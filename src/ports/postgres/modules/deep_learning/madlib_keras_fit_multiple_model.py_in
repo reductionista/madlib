@@ -201,7 +201,6 @@ class FitMultipleModel(object):
         self.dist_keys = query_dist_keys(self.source_table, self.dist_key_col)
         DEBUG.plpy.info("init_dist_keys = {0}".format(self.dist_keys))
         self.max_dist_key = sorted(self.dist_keys)[-1]
-        DEBUG.plpy.info("sorted_dist_keys = {0}".format(sorted(self.dist_keys)))
         DEBUG.plpy.info("max_dist_key = {0}".format(self.max_dist_key))
         self.extra_dist_keys = []
 
