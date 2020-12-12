@@ -913,7 +913,6 @@ class FitMultipleModel(object):
                             src.{self.gp_segment_id_col},
                             {self.segments_per_host},
                             ARRAY{self.images_per_seg_train},
-                            {self.use_gpus}::BOOLEAN,
                             ARRAY{self.accessible_gpus_for_seg},
                             model_in.{self.model_weights_col}::BYTEA,
                             $1::BOOLEAN, -- is_final_training_call

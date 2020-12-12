@@ -101,7 +101,6 @@ CREATE OR REPLACE FUNCTION madlib_installcheck_deep_learning.fit_transition_mult
     current_seg_id              INTEGER,
     segments_per_host           INTEGER,
     images_per_seg              INTEGER[],
-    use_gpus                    BOOLEAN,
     accessible_gpus_for_seg     INTEGER[],
     serialized_weights          BYTEA,
     is_final_training_call      BOOLEAN,
@@ -112,7 +111,7 @@ $$
     param_keys = [ 'compile_params', 'accessible_gpus_for_seg', 'dependent_var_shape', 'dist_key_mapping',
                    'current_seg_id', 'segments_per_host', 'custom_function_map', 'is_final_training_call',
                    'dist_key', 'serialized_weights', 'images_per_seg', 'model_architecture', 'fit_params',
-                   'independent_var_shape', 'use_caching', 'use_gpus' ]
+                   'independent_var_shape', 'use_caching' ]
 
     num_calls = 0
     if 'transition_function_params' in GD:

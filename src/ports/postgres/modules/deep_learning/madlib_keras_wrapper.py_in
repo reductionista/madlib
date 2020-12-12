@@ -68,7 +68,7 @@ def reset_cuda_env(value):
 def enable_xla():
     os.environ['TF_XLA_FLAGS'] = '--tf_xla_auto_jit=2 --tf_xla_cpu_global_jit'
     try:
-        K.tf.config.optimizer.set_jit(True)
+        tf.config.optimizer.set_jit(True)
     except:
         plpy.warning("This version of tensorflow does not fully support XLA auto-cluster JIT optimization.  HINT:  upgrading to tensorflow 1.14.0 may improve performance.")
 
