@@ -49,6 +49,14 @@ from collections import defaultdict
 import random
 import datetime
 
+import utilities.debug as DEBUG
+from utilities.debug import plpy_execute
+
+DEBUG.mst_keys_enabled = False
+DEBUG.plpy_info_enabled = False
+DEBUG.plpy_execute_enabled = True
+DEBUG.timings_enabled = True
+
 from tensorflow.keras.models import *
 mb_dep_var_col = MINIBATCH_OUTPUT_DEPENDENT_COLNAME_DL
 mb_indep_var_col = MINIBATCH_OUTPUT_INDEPENDENT_COLNAME_DL
@@ -76,7 +84,7 @@ segment.
 Note that this function is disabled for Postgres.
 """
 
-@MinWarning("warning")
+# @MinWarning("warning")
 class FitMultipleModel():
     def __init__(self, schema_madlib, source_table, model_output_table,
                  model_selection_table, num_iterations,
@@ -275,6 +283,7 @@ class FitMultipleModel():
         plpy.execute("DROP TABLE IF EXISTS {self.cached_source_table};".format(self=self))
 
     def evaluate_model(self, epoch, table, is_train):
+        DEBUG.start_timing("eval_total")
         if is_train:
             mst_metric_eval_time = self.train_mst_metric_eval_time
             mst_loss = self.train_mst_loss
@@ -289,6 +298,7 @@ class FitMultipleModel():
             images_per_seg = self.images_per_seg_valid
             self.info_str += "\n\tValidation set after iteration {0}:".format(epoch)
         for mst in self.msts:
+            DEBUG.start_timing("eval_model")
             model_arch, _ = get_model_arch_weights(self.model_arch_table, mst[self.model_id_col])
             _, metric, loss = compute_loss_and_metrics(
                 self.schema_madlib, table, "$madlib${0}$madlib$".format(
@@ -308,6 +318,8 @@ class FitMultipleModel():
             mst_loss[mst[self.mst_key_col]].append(loss)
             mst_metric[mst[self.mst_key_col]].append(metric)
             self.info_str += "\n\tmst_key={0}: metric={1}, loss={2}".format(mst[self.mst_key_col], metric, loss)
+            DEBUG.print_timing("eval_model")
+        DEBUG.print_timing("eval_total")
 
     def generate_schedule(self, msts):
         """ Generate the schedule for models hopping to segments """
@@ -569,7 +581,7 @@ class FitMultipleModel():
                     {norm_const}::{float32_sql_type} AS {normalizing_const_colname},
                     ARRAY{metrics_iters}::INTEGER[] AS metrics_iters
             """.format(**locals()), [class_values_type])
-        plpy.execute(create_query, [class_values])
+        plpy_execute(create_query, [class_values])
 
     def update_info_table(self, mst, is_train):
         mst_key = mst[self.mst_key_col]
@@ -610,7 +622,7 @@ class FitMultipleModel():
                            validation_loss = {loss}
                            WHERE {self.mst_key_col} = {mst_key}
                            """.format(**locals())
-        plpy.execute(update_query)
+        plpy_execute(update_query)
 
     def insert_info_table(self):
         for mst in self.msts:
@@ -619,6 +631,7 @@ class FitMultipleModel():
                 self.update_info_table(mst, False)
 
     def run_training(self, mst_idx, is_very_first_hop):
+        DEBUG.start_timing("run_training")
         # NOTE: In the DL module, we want to avoid CREATING TEMP tables
         # (creates a slice which stays until the session is disconnected)
         # or minimize writing queries that generate plans with Motions (creating
@@ -630,6 +643,7 @@ class FitMultipleModel():
         # Therefore we want to have queries that do not add motions and all the
         # sub-queries running Keras/tensorflow operations reuse the same slice(process)
         # that was used for initializing GPU memory.
+        DEBUG.start_timing("hop")
         use_gpus = self.use_gpus if self.use_gpus else False
         mst_weights_query = """
             CREATE {self.unlogged_table} TABLE {self.mst_weights_tbl} AS
@@ -673,6 +687,9 @@ class FitMultipleModel():
             if is_very_first_hop or self.is_final_training_call:
                 where_clause = ""
 
+        DEBUG.print_timing("hop")
+
+        DEBUG.start_timing("uda")
         uda_query = """
             CREATE {self.unlogged_table} TABLE {self.weights_to_update_tbl} AS
             SELECT {self.schema_madlib}.fit_step_multiple_model({mb_dep_var_col},
@@ -714,15 +731,20 @@ class FitMultipleModel():
                        )
         plpy.execute(uda_query)
 
+        DEBUG.print_timing("uda")
+        DEBUG.start_timing("update")
         update_query = """
             UPDATE {self.model_output_table}
             SET {self.model_weights_col} = {self.weights_to_update_tbl}.{self.model_weights_col}
             FROM {self.weights_to_update_tbl}
             WHERE {self.model_output_table}.{self.mst_key_col} = {self.weights_to_update_tbl}.{self.mst_key_col}
         """.format(self=self)
-        plpy.execute(update_query)
+        plpy_execute(update_query)
 
         self.truncate_and_drop_tables()
+
+        DEBUG.print_timing("update")
+        DEBUG.print_timing("run_training")
 
     def truncate_and_drop_tables(self):
         """
