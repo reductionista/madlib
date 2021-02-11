@@ -77,12 +77,16 @@ def validate_output_and_summary_tables(model_out_table, module_name,
 def validate_graph_coding(vertex_table, vertex_id, edge_table, edge_params,
                           out_table, func_name, **kwargs):
     """
-    Validates graph tables (vertex and edge) as well as the output table.
+    Validates graph tables (vertex and edge) as well as the output table name.
+    An error will be thrown if the output table already exists--unless
+    output_may_exist=True is passed as an optional param
     """
     _assert(out_table and out_table.strip().lower() not in ('null', ''),
             "Graph {func_name}: Invalid output table name!".format(**locals()))
-    _assert(not table_exists(out_table),
-            "Graph {func_name}: Output table already exists!".format(**locals()))
+
+    if not ('output_may_exist' in kwargs and kwargs['output_may_exist']):
+         _assert(not table_exists(out_table),
+                "Graph {func_name}: Output table already exists!".format(**locals()))
 
     _assert(vertex_table and vertex_table.strip().lower() not in ('null', ''),
             "Graph {func_name}: Invalid vertex table name!".format(**locals()))

@@ -42,6 +42,7 @@ from utilities.control import MinWarning
 from graph_utils import validate_graph_coding, get_graph_usage
 from graph_utils import validate_output_and_summary_tables
 
+component_id = 'component_id'
 
 def validate_wcc_args(schema_madlib, vertex_table, vertex_id, edge_table,
                       edge_params, out_table, out_table_summary,
@@ -50,8 +51,17 @@ def validate_wcc_args(schema_madlib, vertex_table, vertex_id, edge_table,
     Function to validate input parameters for wcc
     """
     validate_graph_coding(vertex_table, vertex_id, edge_table, edge_params,
-                          out_table, module_name)
-    _assert(not table_exists(out_table_summary),
+                          out_table, module_name, output_may_exist=True)
+
+    if table_exists(out_table):
+        warm_start = True
+        _assert(table_exists(out_table_summary),
+            "Graph {module_name}: Output table exists but summary table is missing!".format(**locals()))
+        _assert(columns_exist_in_table(out_table, grouping_cols_list,
+                vertex_id, component_id))
+    else:
+        warm_start = False
+        _assert(not table_exists(out_table_summary),
             "Graph {module_name}: Output summary table already exists!".format(**locals()))
     if grouping_cols_list:
         # validate the grouping columns. We currently only support grouping_cols
@@ -59,6 +69,7 @@ def validate_wcc_args(schema_madlib, vertex_table, vertex_id, edge_table,
         _assert(columns_exist_in_table(edge_table, grouping_cols_list, schema_madlib),
                 "Weakly Connected Components error: "
                 "One or more grouping columns specified do not exist!")
+    return warm_start
 
 def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
         out_table, grouping_cols, **kwargs):
@@ -97,10 +108,11 @@ def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
     out_table_summary = ''
     if out_table:
         out_table_summary = add_postfix(out_table, "_summary")
+
     grouping_cols_list = split_quoted_delimited_str(grouping_cols)
-    validate_wcc_args(schema_madlib, vertex_table, vertex_id, edge_table,
-                      edge_params, out_table, out_table_summary,
-                      grouping_cols_list, 'Weakly Connected Components')
+    warm_start = validate_wcc_args(schema_madlib, vertex_table, vertex_id, edge_table,
+                                   edge_params, out_table, out_table_summary,
+                                   grouping_cols_list, 'Weakly Connected Components')
     src = edge_params["src"]
     dest = edge_params["dest"]
 
@@ -122,7 +134,6 @@ def wcc(schema_madlib, vertex_table, vertex_id, edge_table, edge_args,
     edge_inverse_to_update_where_condition = ''
 
     BIGINT_MAX = 9223372036854775807
-    component_id = 'component_id'
     grouping_cols_comma = '' if not grouping_cols else grouping_cols + ','
     comma_grouping_cols = '' if not grouping_cols else ',' + grouping_cols
 
