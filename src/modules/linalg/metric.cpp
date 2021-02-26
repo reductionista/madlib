@@ -30,6 +30,11 @@ namespace linalg {
 
 namespace {
 
+namespace mad {
+    typedef std::basic_string<char,std::char_traits<char>,Allocator> string;
+}
+
+
 template <class TupleType>
 struct ReverseLexicographicComparator {
     /**
@@ -247,16 +252,16 @@ distJaccard(const ArrayHandle<text*>& inX, const ArrayHandle<text*>& inY) {
 
     std::set<string> x_set;
     for (size_t i = 0; i < inX.size(); i++){
-        x_set.insert(std::string(VARDATA_ANY(inX[i]),
-                                 VARSIZE_ANY(inX[i]) - VARHDRSZ));
+        x_set.insert(string(VARDATA_ANY(inX[i]),
+                            VARSIZE_ANY(inX[i]) - VARHDRSZ));
     }
 
     size_t n_intersection = 0;
     size_t n_union = x_set.size();
     std::set<string> y_set;
     for (size_t i = 0; i < inY.size(); i++){
-        string y_elem = std::string(VARDATA_ANY(inY[i]),
-                                    VARSIZE_ANY(inY[i]) - VARHDRSZ);
+        string y_elem = string(VARDATA_ANY(inY[i]),
+                               VARSIZE_ANY(inY[i]) - VARHDRSZ);
         if (y_set.count(y_elem) == 0){
             // for sets, count returns 1 if an element with that value
             // exists in the container, and zero otherwise.
@@ -284,16 +289,6 @@ distJaccard(const ArrayHandle<text*>& inX, const ArrayHandle<text*>& inY) {
  * impacts performance by more than, say, ~10%.
  */
 
-std::string dist_fn_name(string s)
-{
-    std::istringstream ss(s);
-    std::string token, fname;
-    if (std::getline(ss, token, '.')) fname = token; // suppose there is no schema name
-    if (std::getline(ss, token, '.')) fname = token; // previous part is schema name
-    return fname;
-}
-
-
 template <class RandomAccessIterator>
 inline
 void
@@ -301,7 +296,7 @@ closestColumnsAndDistancesShortcut(
     const MappedMatrix& inMatrix,
     const MappedColumnVector& inVector,
     FunctionHandle &inDist,
-    std::string fname,
+    mad::string fname,
     RandomAccessIterator ioFirst,
     RandomAccessIterator ioLast) {
 
@@ -344,8 +339,7 @@ closest_column::run(AnyType& args) {
         MappedColumnVector x = args[1].getAs<MappedColumnVector>();
         FunctionHandle dist = args[2].getAs<FunctionHandle>()
             .unsetFunctionCallOptions(FunctionHandle::GarbageCollectionAfterCall);
-        string dist_fname = args[3].getAs<char *>();
-        std::string fname = dist_fn_name(dist_fname);
+        mad::string fname(args[3].getAs<char *>());
         std::tuple<Index, double> result;
         closestColumnsAndDistancesShortcut(M, x, dist, fname, &result, &result + 1);
 
@@ -379,9 +373,7 @@ closest_columns::run(AnyType& args) {
         uint32_t num = args[2].getAs<uint32_t>();
         FunctionHandle dist = args[3].getAs<FunctionHandle>()
             .unsetFunctionCallOptions(FunctionHandle::GarbageCollectionAfterCall);
-        string dist_fname = args[4].getAs<char *>();
-
-        std::string fname = dist_fn_name(dist_fname);
+        mad::string fname(args[4].getAs<char *>());
 
         std::vector<std::tuple<Index, double> > result(num);
         closestColumnsAndDistancesShortcut(M, x, dist, fname, result.begin(),

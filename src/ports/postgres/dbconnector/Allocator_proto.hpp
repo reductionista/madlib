@@ -113,6 +113,31 @@ protected:
 
 Allocator& defaultAllocator();
 
+/*
+ * This is to ensure that the STL functions of C++ use palloc() and pfree()
+ *  instead of the usual malloc() and free().  Mostly needed for C++11,
+ *  we already do this for new and delete operators.
+ */
+template <class T>
+class mad_stl_allocator
+{
+    typedef T value_type;
+
+    mad_stl_allocator() : m_defaultAlloc(defaultAllocator()) noexcept {}
+    template <class U> mad_stl_allocator (const mad_stl_allocator<U>&) noexcept {}
+
+    T* allocate (std::size_t n) { return static_cast<T*>(m_defaultAlloc.allocate(n*sizeof(T))); }
+    void deallocate (T* p, std::size_t n) { m_defaultAlloc.free(static_cast<void *>(p), n); }
+};
+
+template <class T, class U>
+constexpr bool operator== (const mad_stl_allocator<T>&, const mad_stl_allocator<U>&) noexcept
+{return true;}
+
+template <class T, class U>
+constexpr bool operator!= (const mad_stl_allocator<T>&, const mad_stl_allocator<U>&) noexcept
+{return false;}
+
 } // namespace postgres
 
 } // namespace dbconnector

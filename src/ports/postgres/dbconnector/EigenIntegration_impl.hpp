@@ -357,11 +357,15 @@ NativeArrayToMappedVector(Datum inDatum, bool inNeedMutableClone) {
         || (ARR_NDIM(array) == 2
             && (ARR_DIMS(array)[0] == 1 || ARR_DIMS(array)[1] == 1)))) {
 
-        std::stringstream errorMsg;
-        errorMsg << "Invalid type conversion to matrix. Expected one-"
+        std::stringstream *ss = new std::stringstream;
+        *ss << "Invalid type conversion to matrix. Expected one-"
             "dimensional array but got " << ARR_NDIM(array)
             << " dimensions.";
-        throw std::invalid_argument(errorMsg.str());
+
+        std::string errorMsg = ss->str();
+        delete ss;
+
+        throw std::invalid_argument(errorMsg);
     }
 
     Scalar* origData = reinterpret_cast<Scalar*>(ARR_DATA_PTR(array));
