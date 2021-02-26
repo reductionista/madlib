@@ -127,7 +127,7 @@ if(CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS "-fdiagnostics-show-option -Wall -Wextra -pedantic -Wconversion -Wno-long-long -Wno-clobbered ${SSE_DISABLE_OPTIONS} -fstrict-aliasing"
     )
     if (CXX11)
-        set(CMAKE_CXX_FLAGS "-std=gnu++11 ${CMAKE_CXX_FLAGS}"
+        set(CMAKE_CXX_FLAGS "-std=gnu++11 -O0 ${CMAKE_CXX_FLAGS}"
             CACHE STRING
             "Flags used by the compiler during all build types." FORCE)
         set(CMAKE_C_FLAGS "-std=gnu11 ${CMAKE_C_FLAGS}"
@@ -161,7 +161,7 @@ if(CMAKE_COMPILER_IS_GNUCXX)
     endif(APPLE)
 elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
     if(CXX11)
-        set(CMAKE_CXX_FLAGS "-stdlib=libc++ -std=c++11"
+        set(CMAKE_CXX_FLAGS "-stdlib=libc++ -std=c++11 -O0"
             CACHE STRING
             "Flags used by the compiler during all build types." FORCE)
     else(CXX11)
