@@ -26,6 +26,12 @@
 // the search paths, which might point to a port-specific dbconnector.hpp
 #include <dbconnector/dbconnector.hpp>
 
+#ifdef CXX11
+#define THROW_BAD_ALLOC
+#else
+#define THROW_BAD_ALLOC throw (std::bad_alloc)
+#endif
+
 /**
  * @brief operator new for PostgreSQL. Throw on fail.
  *
@@ -34,7 +40,7 @@
  * that size.
  */
 void*
-operator new(std::size_t size) throw (std::bad_alloc) {
+operator new(std::size_t size) THROW_BAD_ALLOC {
     return madlib::defaultAllocator().allocate<
         madlib::dbal::FunctionContext,
         madlib::dbal::DoNotZero,
@@ -42,7 +48,7 @@ operator new(std::size_t size) throw (std::bad_alloc) {
 }
 
 void*
-operator new[](std::size_t size) throw (std::bad_alloc) {
+operator new[](std::size_t size) THROW_BAD_ALLOC {
     return madlib::defaultAllocator().allocate<
         madlib::dbal::FunctionContext,
         madlib::dbal::DoNotZero,
