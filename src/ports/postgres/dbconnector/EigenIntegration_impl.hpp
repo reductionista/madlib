@@ -339,6 +339,27 @@ MatrixToNativeArray(const Eigen::MatrixBase<Derived>& inMatrix) {
     return arrayHandle.array();
 }
 
+typedef class _mystring mystring;
+
+class _mystring : std:string
+{
+    mystring& mystring(mystring &s);
+    void ~_mystring();
+}
+
+mystring& _mystring::_mystring()
+{
+    elog(WARNING, "mystring being allocated");
+    return std::string();
+}
+
+void _mystring::~_mystring()
+{
+    elog(WARNING, "mystring being deleted");
+    std::string::~string(this);
+}
+
+
 /**
  * @brief Convert a native array to [Mutable]MappedVector
  */
@@ -347,22 +368,23 @@ VectorType
 NativeArrayToMappedVector(Datum inDatum, bool inNeedMutableClone) {
     typedef typename VectorType::Scalar Scalar;
 
-    ArrayType* array = reinterpret_cast<ArrayType*>(
-        madlib_DatumGetArrayTypeP(inDatum));
-    size_t arraySize = ARR_NDIM(array) == 1
-        ? ARR_DIMS(array)[0]
-        : ARR_DIMS(array)[0] * ARR_DIMS(array)[1];
+    std::ostringstream errorMsg; //  = new std::ostringstream();
+    mystring err_msg;
+    const int n = 33;
 
-    if (!(ARR_NDIM(array) == 1
-        || (ARR_NDIM(array) == 2
-            && (ARR_DIMS(array)[0] == 1 || ARR_DIMS(array)[1] == 1)))) {
+    errorMsg << "Invalid type conversion to matrix. Expected one-"
+        "dimensional array but got " << n
+        << " dimensions.";
 
-        std::stringstream errorMsg;
-        errorMsg << "Invalid type conversion to matrix. Expected one-"
-            "dimensional array but got " << ARR_NDIM(array)
-            << " dimensions.";
-        throw std::invalid_argument(errorMsg.str());
-    }
+    err_msg = errorMsg->str();
+
+    delete errorMsg;
+
+    elog(WARNING, err_msg.c_str());
+
+    delete err_msg;
+
+    assert(err_msg == nullptr);  // Just stop here, so we can debug
 
     Scalar* origData = reinterpret_cast<Scalar*>(ARR_DATA_PTR(array));
     Scalar* data;
@@ -415,12 +437,14 @@ NativeArrayToMappedVectorXcd(Datum inDatum, bool inNeedMutableClone) {
         madlib_DatumGetArrayTypeP(inDatum));
 
     if (ARR_NDIM(array) != 2 || ARR_DIMS(array)[1] != 2) {
-        std::stringstream errorMsg;
-        errorMsg << "Invalid type conversion to VectorXcd. Expected two-"
+        std::ostringstream *errorMsg;
+        *errorMsg << "Invalid type conversion to VectorXcd. Expected two-"
             "dimensional array with two elements for secondary dimension "
             "but got " << ARR_NDIM(array) << " dimensions and "
             << ARR_DIMS(array)[1] << " elements in secondary dimension.";
-        throw std::invalid_argument(errorMsg.str());
+        std::string err_msg = errorMsg->str();
+        delete errorMsg;
+        throw std::invalid_argument(err_msg);
     }
 
     size_t arraySize = ARR_DIMS(array)[0];
@@ -456,11 +480,13 @@ NativeArrayToMappedMatrix(Datum inDatum, bool inNeedMutableClone) {
     size_t arraySize = ARR_DIMS(array)[0] * ARR_DIMS(array)[1];
 
     if (ARR_NDIM(array) != 2) {
-        std::stringstream errorMsg;
-        errorMsg << "Invalid type conversion to matrix. Expected two-"
+        std::ostringstream *errorMsg = new std::ostringstream();
+        *errorMsg << "Invalid type conversion to matrix. Expected two-"
             "dimensional array but got " << ARR_NDIM(array)
             << " dimensions.";
-        throw std::invalid_argument(errorMsg.str());
+        std::string err_msg = errorMsg->str();
+        delete errorMsg;
+        throw std::invalid_argument(err_msg);
     }
 
     Scalar* origData = reinterpret_cast<Scalar*>(ARR_DATA_PTR(array));

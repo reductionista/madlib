@@ -1120,26 +1120,29 @@ DecisionTree<Container>::displayLeafNode(
             ArrayHandle<text*> &dep_levels,
             const std::string & id_prefix,
             bool verbose){
-    std::stringstream predict_str;
+    std::ostringstream *predict_str = new std::ostringstream();
     if (static_cast<bool>(is_regression)){
-        predict_str << predict_response(id);
+        *predict_str << predict_response(id);
     }
     else{
         std::string dep_value = get_text(dep_levels, static_cast<int>(predict_response(id)));
-        predict_str << escape_quotes(dep_value);
+        *predict_str << escape_quotes(dep_value);
     }
 
-    std::stringstream display_str;
-    display_str << "\"" << id_prefix << id << "\" [label=\"" << predict_str.str();
+    std::string pred_str = predict_str->str();
+    delete predict_str;
+
+    std::ostringstream *display_str = new std::ostringstream();
+    *display_str << "\"" << id_prefix << id << "\" [label=\"" << pred_str;
 
     if(verbose){
-        display_str << "\\n impurity = "<< impurity(predictions.row(id))
+        *display_str << "\\n impurity = "<< impurity(predictions.row(id))
                     << "\\n samples = " << statCount(predictions.row(id))
                     << "\\n value = ";
         if (is_regression)
-            display_str << statPredict(predictions.row(id));
+            *display_str << statPredict(predictions.row(id));
         else{
-            display_str << "[";
+            *display_str << "[";
             // NUM_PER_LINE: inserting new lines at fixed intervals
             // avoids a really long 'value' line
             const uint16_t NUM_PER_LINE = 10;
@@ -1149,17 +1152,20 @@ DecisionTree<Container>::displayLeafNode(
             for (Index i = 0; i < pred_size; i += NUM_PER_LINE){
                 if (i + NUM_PER_LINE >= pred_size) {
                     // not overflowing the vector
-                    display_str << predictions.row(id).segment(i, pred_size - i);
+                    *display_str << predictions.row(id).segment(i, pred_size - i);
                 } else {
-                    display_str << predictions.row(id).segment(i, NUM_PER_LINE) << "\n";
+                    *display_str << predictions.row(id).segment(i, NUM_PER_LINE) << "\n";
                 }
             }
-            display_str << "]";
+            *display_str << "]";
 
         }
     }
-    display_str << "\",shape=box]" << ";";
-    return display_str.str();
+    *display_str << "\",shape=box]" << ";";
+
+    string disp_str = display_str->str();
+    delete display_str;
+    return disp_str;
 }
 // -------------------------------------------------------------------------
 
@@ -1198,16 +1204,16 @@ DecisionTree<Container>::displayInternalNode(
         label_str << get_text(cat_levels_text, index);
     }
 
-    std::stringstream display_str;
-    display_str << "\"" << id_prefix << id << "\" [label=\"" << label_str.str();
+    std::ostringstream *display_str = new std::ostringstream();
+    *display_str << "\"" << id_prefix << id << "\" [label=\"" << label_str.str();
     if(verbose){
-        display_str << "\\n impurity = "<< impurity(predictions.row(id)) << "\\n samples = " << statCount(predictions.row(id));
+        *display_str << "\\n impurity = "<< impurity(predictions.row(id)) << "\\n samples = " << statCount(predictions.row(id));
 
-        display_str << "\\n value = ";
+        *display_str << "\\n value = ";
         if (is_regression)
-            display_str << statPredict(predictions.row(id));
+            *display_str << statPredict(predictions.row(id));
         else{
-            display_str << "[";
+            *display_str << "[";
             // NUM_PER_LINE: inserting new lines at fixed interval
             // avoids really long 'value' line
             const uint16_t NUM_PER_LINE = 10;
@@ -1217,26 +1223,29 @@ DecisionTree<Container>::displayInternalNode(
             for (Index i = 0; i < pred_size; i += NUM_PER_LINE){
                 if (i + NUM_PER_LINE > pred_size) {
                     // not overflowing the vector
-                    display_str << predictions.row(id).segment(i, pred_size - i);
+                    *display_str << predictions.row(id).segment(i, pred_size - i);
                 } else {
-                    display_str << predictions.row(id).segment(i, NUM_PER_LINE) << "\n";
+                    *display_str << predictions.row(id).segment(i, NUM_PER_LINE) << "\n";
                 }
             }
-            display_str << "]";
+            *display_str << "]";
         }
 
-        std::stringstream predict_str;
+        std::ostringstream *predict_str = new std::ostringstream();
         if (static_cast<bool>(is_regression)){
-            predict_str << predict_response(id);
+            *predict_str << predict_response(id);
         }
         else{
             std::string dep_value = get_text(dep_levels, static_cast<int>(predict_response(id)));
-            predict_str << escape_quotes(dep_value);
+            *predict_str << escape_quotes(dep_value);
         }
-        display_str << "\\n class = " << predict_str.str();
+        *display_str << "\\n class = " << predict_str->str();
+        delete predict_str;
     }
-    display_str << "\", shape=ellipse]" << ";";
-    return display_str.str();
+    *display_str << "\", shape=ellipse]" << ";";
+    std::string disp_str = display_str->str();
+    delete display_str;
+    return disp_str;
 }
 // -------------------------------------------------------------------------
 
@@ -1255,9 +1264,9 @@ DecisionTree<Container>::display(
         const std::string &id_prefix,
         bool verbose) {
 
-    std::stringstream display_string;
+    std::ostringstream *display_string = new std::ostringstream();
     if (feature_indices(0) == FINISHED_LEAF){
-        display_string << displayLeafNode(0, dependent_levels, id_prefix, verbose)
+        *display_string << displayLeafNode(0, dependent_levels, id_prefix, verbose)
                        << std::endl;
     }
     else{
@@ -1266,44 +1275,46 @@ DecisionTree<Container>::display(
                     feature_indices(index) != IN_PROCESS_LEAF &&
                     feature_indices(index) != FINISHED_LEAF) {
 
-                display_string << displayInternalNode(
+                *display_string << displayInternalNode(
                         index, cat_features_str, con_features_str,
                         cat_levels_text, cat_n_levels, dependent_levels, id_prefix, verbose) << std::endl;
 
                 // Display the children
                 Index tc = trueChild(index);
                 if (feature_indices(tc) != NODE_NON_EXISTING) {
-                    display_string << "\"" << id_prefix << index << "\" -> "
+                    *display_string << "\"" << id_prefix << index << "\" -> "
                                    << "\"" << id_prefix << tc << "\"";
 
                      // edge going left is "true" node
-                    display_string << "[label=\"yes\"];" << std::endl;
+                    *display_string << "[label=\"yes\"];" << std::endl;
 
                     if (feature_indices(tc) == IN_PROCESS_LEAF ||
                         feature_indices(tc) == FINISHED_LEAF)
-                        display_string
+                        *display_string
                             << displayLeafNode(tc, dependent_levels, id_prefix, verbose)
                             << std::endl;
                 }
 
                 Index fc = falseChild(index);
                 if (feature_indices(fc) != NODE_NON_EXISTING) {
-                    display_string << "\"" << id_prefix << index << "\" -> "
+                    *display_string << "\"" << id_prefix << index << "\" -> "
                                    << "\"" << id_prefix << fc << "\"";
 
                     // root edge going right is "false" node
-                    display_string << "[label=\"no\"];" << std::endl;
+                    *display_string << "[label=\"no\"];" << std::endl;
 
                     if (feature_indices(fc) == IN_PROCESS_LEAF ||
                         feature_indices(fc) == FINISHED_LEAF)
-                        display_string
+                        *display_string
                             << displayLeafNode(fc, dependent_levels, id_prefix, verbose)
                             << std::endl;
                 }
             }
         } // end of for loop
     }
-    return display_string.str();
+    std::string disp_str = display_string->str();
+    delete display_string;
+    return disp_str;
 }
 // -------------------------------------------------------------------------
 
